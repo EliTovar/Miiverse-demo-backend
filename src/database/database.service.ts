@@ -16,6 +16,19 @@ export class DatabaseService implements OnModuleInit, OnModuleDestroy {
 
     await this.pool.query('SELECT 1');
     console.log('🟢 PostgreSQL conectado');
+    await this.createSchema();
+  }
+
+  private async createSchema() {
+    const query = `
+      ALTER TABLE users 
+      ADD COLUMN IF NOT EXISTS pos_x float8 DEFAULT 0,
+      ADD COLUMN IF NOT EXISTS pos_y float8 DEFAULT 0,
+      ADD COLUMN IF NOT EXISTS pos_z float8 DEFAULT 0,
+      ADD COLUMN IF NOT EXISTS rot_y float8 DEFAULT 0;
+    `;
+    await this.pool.query(query);
+    console.log('🛠️ Schema de persistencia verificado/actualizado');
   }
 
   async query<T = any>(text: string, params: any[] = []): Promise<T[]> {
