@@ -10,10 +10,11 @@ import { JwtAuthGuard } from './auth/jwt-auth.guard';
 import { RolesGuard } from './auth/guards/roles.guard';
 import { MultiplayerModule } from './multiplayer/multiplayer.module';
 import { GamesModule } from './games/games.module';
+import { DiscordModule } from './discord/discord.module';
 
 
 @Module({
-  imports: [DatabaseModule, UsersModule, AuthModule, AuthModule, MultiplayerModule, GamesModule], //
+  imports: [DatabaseModule, UsersModule, AuthModule, AuthModule, MultiplayerModule, GamesModule, DiscordModule], //
   controllers: [AppController],
   providers: [
     AppService,
