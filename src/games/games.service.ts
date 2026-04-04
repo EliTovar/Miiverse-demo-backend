@@ -3,26 +3,72 @@ import { Injectable } from '@nestjs/common';
 @Injectable()
 export class GamesService {
   async getTrendingGames() {
-    try {
-      const response = await fetch('https://steamspy.com/api.php?request=top100in2weeks');
-      const data = await response.json();
-      
-      // Convertir el objeto de SteamSpy en un array ordenado por jugadores concurrentes (CCU)
-      const gamesArray = Object.values(data) as any[];
-      const sorted = gamesArray.sort((a, b) => (b.ccu || 0) - (a.ccu || 0));
-      
-      // Extraer los top 3 reales
-      const trending = sorted.slice(0, 3).map(game => ({
-        appid: game.appid,
-        name: game.name,
-        // 🔥 Cambiamos a la imagen de la biblioteca que es vertical y tipo "Icono"
-        image: `https://cdn.cloudflare.steamstatic.com/steam/apps/${game.appid}/library_600x900_2x.jpg`
-      }));
+    return this.fetchFromSteamStore('top_sellers');
+  }
 
-      return trending;
+  async getRecentGames() {
+    return this.fetchFromSteamStore('new_releases');
+  }
+
+  private async fetchFromSteamStore(category: string) {
+    try {
+      const response = await fetch('https://store.steampowered.com/api/featuredcategories');
+      const data = await response.json();
+      const items = data[category]?.items || [];
+      
+      // -------------------------------------------------------------------------
+      // 🎮 CANTIDAD DE JUEGOS A MOSTRAR (MODIFICA AQUÍ)
+      // Cambia el '5' por el número de juegos que prefieras (ej: 3, 5, 10).
+      // -------------------------------------------------------------------------
+      const gameLimit = 5; 
+      const topGames = items.slice(0, gameLimit);
+      // -------------------------------------------------------------------------
+
+      return Promise.all(topGames.map(async (item: any) => ({
+        appid: item.id,
+        name: item.name,
+        image: this.wrapProxy(item.large_capsule_image || item.header_image)
+      })));
     } catch (error) {
-      console.error('Error fetching SteamSpy:', error.message);
+      console.error(`Error fetching Steam Store category [${category}]:`, error.message);
       return [];
+    }
+  }
+
+  private wrapProxy(url: string): string {
+    return `http://192.168.100.15:3000/games/proxy?url=${encodeURIComponent(url)}`;
+  }
+
+  async getImageUrl(appid: number): Promise<string> {
+    const verticalUrl = `https://cdn.cloudflare.steamstatic.com/steam/apps/${appid}/library_600x900_2x.jpg`;
+    const horizontalUrl = `https://cdn.cloudflare.steamstatic.com/steam/apps/${appid}/header.jpg`;
+    const ultimateFallback = `https://cdn.cloudflare.steamstatic.com/steam/apps/400/header.jpg`;
+
+    try {
+      const resV = await fetch(verticalUrl, { method: 'HEAD' });
+      if (resV.ok) return verticalUrl;
+      const resH = await fetch(horizontalUrl, { method: 'HEAD' });
+      if (resH.ok) return horizontalUrl;
+      return ultimateFallback;
+    } catch {
+      return ultimateFallback;
+    }
+  }
+  // Método para el nuevo endpoint del controlador
+  async fetchImage(url: string) {
+    try {
+      const response = await fetch(url);
+      if (!response.ok) throw new Error('Steam image not found');
+      
+      const buffer = await response.arrayBuffer();
+      const contentType = response.headers.get('content-type') || 'image/jpeg';
+      
+      return {
+        buffer: Buffer.from(buffer),
+        contentType
+      };
+    } catch (e) {
+      throw e;
     }
   }
 }
