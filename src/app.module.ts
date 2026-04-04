@@ -9,10 +9,11 @@ import { APP_GUARD } from '@nestjs/core';
 import { JwtAuthGuard } from './auth/jwt-auth.guard';
 import { RolesGuard } from './auth/guards/roles.guard';
 import { MultiplayerModule } from './multiplayer/multiplayer.module';
+import { GamesModule } from './games/games.module';
 
 
 @Module({
-  imports: [DatabaseModule, UsersModule, AuthModule, AuthModule, MultiplayerModule], //
+  imports: [DatabaseModule, UsersModule, AuthModule, AuthModule, MultiplayerModule, GamesModule], //
   controllers: [AppController],
   providers: [
     AppService,
