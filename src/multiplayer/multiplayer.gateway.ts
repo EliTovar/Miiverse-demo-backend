@@ -14,6 +14,7 @@ import {
 } from '@nestjs/websockets';
 import { JwtService } from '@nestjs/jwt';
 import { Server, Socket } from 'socket.io';
+import { AIService } from 'src/ai/ai.service';
 
 interface Player {
   id: string;        // socket.id
@@ -36,7 +37,10 @@ export class MultiplayerGateway //Aqui comienza ------------------
 
   private players = new Map<string, Player>();
 
-  constructor(private readonly jwtService: JwtService) {}
+  constructor(
+    private readonly jwtService: JwtService,
+    private readonly aiService: AIService
+  ) {}
 
     handleConnection(client: Socket) {
   try {
@@ -189,5 +193,37 @@ handleLogout(@ConnectedSocket() client: Socket) {
   client.data.role = 'spectator';
 }
 
+  @SubscribeMessage('ai-message')
+  async handleAIMessage(
+    @MessageBody() data: { message: string },
+    @ConnectedSocket() client: Socket,
+  ) {
+    const player = this.players.get(client.id);
+    const username = player?.username || 'Invitado';
 
+    console.log(`[IA] 📥 Petición de ${username}: "${data.message}"`);
+
+    try {
+      const onlinePlayers = Array.from(this.players.values())
+        .map(p => p.username)
+        .join(', ');
+      
+      const context = `Jugadores conectados actualmente: ${onlinePlayers || 'Ninguno'}.`;
+
+      console.log(`[IA] 🚀 Consultando Gemini...`);
+      const response = await this.aiService.ask(data.message, context);
+      console.log(`[IA] ✅ Respuesta enviada.`);
+
+      client.emit('ai-response', {
+        text: response,
+      });
+
+    } catch (err) {
+      console.error('❌ [IA] ERROR:', err);
+      client.emit('ai-response', {
+        text: '⚠️ Error: No pude procesar tu solicitud. Verifica la API KEY o conexión.',
+        isError: true
+      });
+    }
+  }
 }

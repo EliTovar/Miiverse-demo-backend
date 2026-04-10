@@ -9,10 +9,14 @@ import { APP_GUARD } from '@nestjs/core';
 import { JwtAuthGuard } from './auth/jwt-auth.guard';
 import { RolesGuard } from './auth/guards/roles.guard';
 import { MultiplayerModule } from './multiplayer/multiplayer.module';
+import { ConfigModule } from '@nestjs/config';
 
 
 @Module({
-  imports: [DatabaseModule, UsersModule, AuthModule, AuthModule, MultiplayerModule], //
+  imports: [ConfigModule.forRoot({
+      isGlobal: true, // 👈 CLAVE
+    }),
+    DatabaseModule, UsersModule, AuthModule, AuthModule, MultiplayerModule], //
   controllers: [AppController],
   providers: [
     AppService,
