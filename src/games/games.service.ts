@@ -57,8 +57,16 @@ export class GamesService {
   // Método para el nuevo endpoint del controlador
   async fetchImage(url: string) {
     try {
-      const response = await fetch(url);
-      if (!response.ok) throw new Error('Steam image not found');
+      const response = await fetch(url, {
+        headers: {
+          'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+          'Accept': 'image/webp,image/apng,image/*,*/*;q=0.8'
+        }
+      });
+      if (!response.ok) {
+        console.error(`❌ Proxy fetch failed for URL: ${url} | Status: ${response.status} ${response.statusText}`);
+        throw new Error(`Image fetch failed with status ${response.status}`);
+      }
       
       const buffer = await response.arrayBuffer();
       const contentType = response.headers.get('content-type') || 'image/jpeg';

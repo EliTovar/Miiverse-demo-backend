@@ -4,18 +4,17 @@ import { Injectable } from '@nestjs/common';
 export class DiscordService {
 
   /**
-   * Obtiene los Top Bots de Discord desde Top.gg
-   * Hace scraping del HTML público de top.gg/list/top
+   * Obtiene los Top Servidores de Discord desde Top.gg
    */
   async getTopBots() {
-    return this.fetchFromTopGG('top');
+    return this.fetchFromTopGG('list/top');
   }
 
   /**
-   * Obtiene los Bots Trending de Discord desde Top.gg
+   * Obtiene los Servidores Trending de Discord desde Top.gg
    */
   async getTrendingBots() {
-    return this.fetchFromTopGG('trending');
+    return this.fetchFromTopGG('list/trending');
   }
 
   // -------------------------------------------------------------------------
@@ -27,7 +26,7 @@ export class DiscordService {
 
   private async fetchFromTopGG(listType: string) {
     try {
-      const response = await fetch(`https://top.gg/list/${listType}`, {
+      const response = await fetch(`https://top.gg/discord/servers/${listType}`, {
         headers: {
           'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
           'Accept': 'text/html,application/xhtml+xml',
@@ -49,62 +48,56 @@ export class DiscordService {
   }
 
   private parseTopGGHTML(html: string) {
-    const bots: any[] = [];
+    const servers: any[] = [];
 
-    // Extraer bot entries del HTML usando regex
-    // Patron: /bot/ID seguido de nombre y votos
-    const botPattern = /href="\/bot\/(\d+)"[^>]*>[\s\S]*?<h5[^>]*>(.*?)<\/h5>/gi;
-    const votePattern = /Vote \(([\d.]+[KM]?)\)/gi;
-    const descPattern = /<h6[^>]*>(.*?)<\/h6>/gi;
+    // Dividimos por el prefijo de las URLs de los servidores
+    const sections = html.split(/href="\/discord\/servers\/(\d+)"/);
 
-    // Método más robusto: buscar por secciones de bot
-    const sections = html.split(/##### /);
+    for (let i = 1; i < sections.length && servers.length < this.botLimit; i += 2) {
+      const serverId = sections[i];
+      const htmlContent = sections[i + 1].substring(0, 3000); // Rango de busqueda razonable
 
-    for (let i = 1; i < sections.length && bots.length < this.botLimit; i++) {
-      const section = sections[i];
+      // Si ya agregamos este servidor, saltar (top.gg suele repetir links)
+      if (servers.find(s => s.id === serverId)) continue;
 
-      // Extraer nombre (primera línea después del split)
-      const nameMatch = section.match(/^([^\n\r\[]+)/);
-      if (!nameMatch) continue;
-      const name = nameMatch[1].trim();
+      // Buscar <img alt="Nombre Servidor" ... src="Url Imagen">
+      const imgMatch = htmlContent.match(/<img[^>]*alt="([^"]+)"[^>]*src="([^"]+)"/i);
+      
+      // La imagen a veces tiene class antes que src, o viceversa, pero lo anterior cubre la mayoría
+      // Alternativa más segura:
+      const rawImgMatch = htmlContent.match(/<img[^>]+>/i);
+      let name = 'Discord Server';
+      let imageStr = '';
+      
+      if (rawImgMatch) {
+         const altM = rawImgMatch[0].match(/alt="([^"]+)"/i);
+         if (altM) name = altM[1].replace(/&amp;/g, '&');
+         
+         const srcM = rawImgMatch[0].match(/src="([^"]+)"/i);
+         if (srcM) imageStr = srcM[1];
+      }
 
-      // No incluir secciones de navegación o headers
-      if (name.length > 50 || name.includes('http') || name.includes('{')) continue;
-
-      // Extraer ID del bot
-      const idMatch = section.match(/\/bot\/(\d+)/);
-      if (!idMatch) continue;
-      const botId = idMatch[1];
-
-      // Extraer votos
-      const voteMatch = section.match(/Vote \(([\d.]+[KM]?)\)/);
+      // Buscar los votos, usando Vote (XX)
+      const voteMatch = htmlContent.match(/Vote \(([\d.]+[KM]?)\)/i);
       const votes = voteMatch ? voteMatch[1] : '0';
 
-      // Extraer descripción
-      const descMatch = section.match(/###### ([\s\S]*?)(?:\n|$)/);
-      const description = descMatch
-        ? descMatch[1].replace(/\[.*?\]\(.*?\)/g, '').trim().slice(0, 80)
-        : '';
-
-      // Avatar del bot (Discord CDN)
-      const avatarUrl = `https://cdn.discordapp.com/avatars/${botId}`;
-
-      bots.push({
-        id: botId,
-        name,
-        votes,
-        description,
-        image: this.wrapProxy(`https://top.gg/api/widget/${botId}.png`),
-        avatar: avatarUrl,
-        url: `https://top.gg/bot/${botId}`
-      });
+      if (serverId && imageStr && !imageStr.includes('lazyload')) {
+        servers.push({
+          id: serverId,
+          name: name,
+          votes: votes,
+          description: name, // En top.gg servidores el alt de la imagen tiene el nombre+descripción corta
+          image: this.wrapProxy(imageStr),
+          url: `https://top.gg/discord/servers/${serverId}`
+        });
+      }
     }
 
-    if (bots.length === 0) {
+    if (servers.length === 0) {
       return this.getFallbackBots();
     }
 
-    return bots;
+    return servers;
   }
 
   private wrapProxy(url: string): string {
@@ -114,44 +107,44 @@ export class DiscordService {
   private getFallbackBots() {
     return [
       {
-        id: '432610292342587392',
-        name: 'Mudae',
-        votes: '3.26M',
-        description: 'Database of 140,000 anime/game characters',
-        image: this.wrapProxy('https://top.gg/api/widget/432610292342587392.png'),
-        url: 'https://top.gg/bot/432610292342587392'
+        id: '543765059424428035',
+        name: 'VALORANT',
+        votes: '7K',
+        description: 'The official VALORANT Discord server',
+        image: this.wrapProxy('https://cdn.top.gg/icons/543765059424428035/95633b49ee9bdf4ecae7df8df08cdfa4.webp?size=128'),
+        url: 'https://top.gg/discord/servers/543765059424428035'
       },
       {
-        id: '646937666251915264',
-        name: 'Karuta',
-        votes: '1.03M',
-        description: '#1 ANIME CARD BOT! Over 170,000 anime cards',
-        image: this.wrapProxy('https://top.gg/api/widget/646937666251915264.png'),
-        url: 'https://top.gg/bot/646937666251915264'
+        id: '542884599173636104',
+        name: 'Roblox',
+        votes: '23K',
+        description: 'The largest community-run Roblox Discord',
+        image: this.wrapProxy('https://cdn.top.gg/icons/542884599173636104/a_fe23a6c2bb20d75cda6d9cedda7da729.webp?size=128'),
+        url: 'https://top.gg/discord/servers/542884599173636104'
       },
       {
-        id: '408785106942164992',
-        name: 'OwO',
-        votes: '386K',
-        description: 'Keep track of your OwOs and compete globally!',
-        image: this.wrapProxy('https://top.gg/api/widget/408785106942164992.png'),
-        url: 'https://top.gg/bot/408785106942164992'
+        id: '703564803452985344',
+        name: 'Socialize',
+        votes: '8K',
+        description: 'The most active VC server!',
+        image: this.wrapProxy('https://cdn.top.gg/icons/703564803452985344/a_6a6206d95392fe19fae21f1d11b33ed5.webp?size=128'),
+        url: 'https://top.gg/discord/servers/703564803452985344'
       },
       {
-        id: '716390085896962058',
-        name: 'Pokétwo',
-        votes: '381K',
-        description: 'The Pokémon experience, on Discord',
-        image: this.wrapProxy('https://top.gg/api/widget/716390085896962058.png'),
-        url: 'https://top.gg/bot/716390085896962058'
+        id: '542882462976860160',
+        name: 'Study Together',
+        votes: '5K',
+        description: 'Find your study flow on the largest global student community',
+        image: this.wrapProxy('https://cdn.top.gg/icons/542882462976860160/a_65a7ba3daeb9eaeb7ff05bda6bdfe42a.webp?size=128'),
+        url: 'https://top.gg/discord/servers/542882462976860160'
       },
       {
-        id: '815289915557675118',
-        name: 'Gachapon',
-        votes: '376K',
-        description: 'Over 30K characters in our Card Game!',
-        image: this.wrapProxy('https://top.gg/api/widget/815289915557675118.png'),
-        url: 'https://top.gg/bot/815289915557675118'
+        id: '542872912039141380',
+        name: 'Dadscord',
+        votes: '3K',
+        description: 'Most Active VC Server For Everyone',
+        image: this.wrapProxy('https://cdn.top.gg/icons/542872912039141380/a_76e5dd2c505bedae3369a19c9629b35e.webp?size=128'),
+        url: 'https://top.gg/discord/servers/542872912039141380'
       },
     ];
   }

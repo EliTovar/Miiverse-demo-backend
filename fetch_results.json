@@ -1,0 +1,120 @@
+{
+  "fields name, rating, rating_count, follows; where platforms = (130); limit 5;": [
+    {
+      "id": 152887,
+      "name": "BanG Dream! Girls Band Party! for Nintendo Switch"
+    },
+    {
+      "id": 200111,
+      "name": "The Tales of Bayun"
+    },
+    {
+      "id": 144483,
+      "name": "A Musical Story"
+    },
+    {
+      "id": 347330,
+      "name": "Street Vendor Simulator"
+    },
+    {
+      "id": 131969,
+      "name": "NecroWorm"
+    }
+  ],
+  "fields name, rating, rating_count, follows; where platforms = (130) & rating_count != null; sort rating_count desc; limit 5;": [
+    {
+      "id": 1942,
+      "name": "The Witcher 3: Wild Hunt",
+      "rating": 93.79077576496385,
+      "rating_count": 5180
+    },
+    {
+      "id": 72,
+      "name": "Portal 2",
+      "rating": 91.28876832157775,
+      "rating_count": 4263
+    },
+    {
+      "id": 71,
+      "name": "Portal",
+      "rating": 86.48883105779728,
+      "rating_count": 3847
+    },
+    {
+      "id": 7346,
+      "name": "The Legend of Zelda: Breath of the Wild",
+      "rating": 92.56149810190618,
+      "rating_count": 2803
+    },
+    {
+      "id": 501,
+      "name": "Batman: Arkham City",
+      "rating": 87.68992375045855,
+      "rating_count": 2574
+    }
+  ],
+  "fields name, rating, rating_count, follows; where platforms = (130) & rating_count > 0; sort rating_count desc; limit 5;": [
+    {
+      "id": 1942,
+      "name": "The Witcher 3: Wild Hunt",
+      "rating": 93.79077576496385,
+      "rating_count": 5180
+    },
+    {
+      "id": 72,
+      "name": "Portal 2",
+      "rating": 91.28876832157775,
+      "rating_count": 4263
+    },
+    {
+      "id": 71,
+      "name": "Portal",
+      "rating": 86.48883105779728,
+      "rating_count": 3847
+    },
+    {
+      "id": 7346,
+      "name": "The Legend of Zelda: Breath of the Wild",
+      "rating": 92.56149810190618,
+      "rating_count": 2803
+    },
+    {
+      "id": 501,
+      "name": "Batman: Arkham City",
+      "rating": 87.68992375045855,
+      "rating_count": 2574
+    }
+  ],
+  "fields name, rating, rating_count, follows; where platforms = [130] & rating_count > 0; sort rating_count desc; limit 5;": [
+    {
+      "id": 1942,
+      "name": "The Witcher 3: Wild Hunt",
+      "rating": 93.79077576496385,
+      "rating_count": 5180
+    },
+    {
+      "id": 72,
+      "name": "Portal 2",
+      "rating": 91.28876832157775,
+      "rating_count": 4263
+    },
+    {
+      "id": 71,
+      "name": "Portal",
+      "rating": 86.48883105779728,
+      "rating_count": 3847
+    },
+    {
+      "id": 7346,
+      "name": "The Legend of Zelda: Breath of the Wild",
+      "rating": 92.56149810190618,
+      "rating_count": 2803
+    },
+    {
+      "id": 501,
+      "name": "Batman: Arkham City",
+      "rating": 87.68992375045855,
+      "rating_count": 2574
+    }
+  ]
+}
