@@ -15,6 +15,7 @@ import {
 import { JwtService } from '@nestjs/jwt';
 import { Server, Socket } from 'socket.io';
 import { AIService } from 'src/ai/ai.service';
+import { UsersService } from '../users/users.service';
 
 interface Player {
   id: string;        // socket.id
@@ -36,13 +37,15 @@ export class MultiplayerGateway //Aqui comienza ------------------
   server: Server;
 
   private players = new Map<string, Player>();
+  private lastSaveTimes = new Map<string, number>();
 
   constructor(
     private readonly jwtService: JwtService,
-    private readonly aiService: AIService
+    private readonly aiService: AIService,
+    private readonly usersService: UsersService,
   ) {}
 
-    handleConnection(client: Socket) {
+  async handleConnection(client: Socket) {
   try {
     const token =
       client.handshake.auth?.token ||
@@ -64,24 +67,40 @@ export class MultiplayerGateway //Aqui comienza ------------------
       return;
     }
 
-    const payload = this.jwtService.verify(token);
+      try {
+        const payload = this.jwtService.verify(token);
+        client.data.role = 'player';
+        await this.initializePlayer(client, payload);
+      } catch (e) {
+        console.error('❌ Error de verificación JWT:', e.message);
+        client.disconnect();
+      }
+    } catch (e) {
+      console.error('❌ Error general en handleConnection:', e.message);
+      client.disconnect();
+    }
+  }
 
-    client.data.role = 'player';
+  private async initializePlayer(client: Socket, payload: any) {
+    // 💾 Cargar persistencia desde DB
+    const dbUser = await this.usersService.findById(payload.sub);
 
     const player: Player = {
       id: client.id,
       userId: payload.sub,
       username: payload.username,
-      position: { x: 0, y: 0, z: 0 },
-      rotation: { y: 0 },
-      animation: 'idle', // 🔥 IMPORTANTE
+      position: dbUser
+        ? { x: dbUser.pos_x, y: dbUser.pos_y, z: dbUser.pos_z }
+        : { x: 0, y: 0, z: 0 },
+      rotation: dbUser ? { y: dbUser.rot_y } : { y: 0 },
+      animation: 'idle',
     };
 
     this.players.set(client.id, player);
 
     client.emit(
       'current-players',
-      Array.from(this.players.values()).map(p => ({
+      Array.from(this.players.values()).map((p) => ({
         id: p.id,
         username: p.username,
         position: p.position,
@@ -91,18 +110,38 @@ export class MultiplayerGateway //Aqui comienza ------------------
     );
 
     client.broadcast.emit('player-joined', player);
-  } catch {
-    client.disconnect();
   }
-}
+
+  @SubscribeMessage('authenticate')
+  async handleAuthenticate(
+    @ConnectedSocket() client: Socket,
+    @MessageBody() data: { token: string },
+  ) {
+    try {
+      const payload = this.jwtService.verify(data.token);
+      client.data.role = 'player';
+      await this.initializePlayer(client, payload);
+    } catch (e) {
+      console.error('❌ Error de autenticación dinámica:', e.message);
+    }
+  }
 
 
-    handleDisconnect(client: Socket) {
+  async handleDisconnect(client: Socket) {
     const player = this.players.get(client.id);
 
-    if ( player) {
+    if (player) {
       console.log('🚫 Cliente desconectado:', player.username);
+
+      // 💾 Guardado final al desconectar (AWAITED para evitar race conditions)
+      if (player.position && player.position.x !== 0) {
+        await this.usersService
+          .updatePosition(player.userId, player.position, player.rotation)
+          .catch((err) => console.error('Error en guardado final:', err));
+      }
+
       this.players.delete(client.id);
+      this.lastSaveTimes.delete(client.id);
       this.server.emit('player-left', client.id);
     }
   }
@@ -149,6 +188,15 @@ handleRequestPlayers(@ConnectedSocket() client: Socket) {
 
     // Igual que antes: enviar a todos
     client.broadcast.emit('player-moved', payload);
+
+    // 🕒 Throttled Save (cada 2 segundos) para no saturar la DB a 30Hz
+    const now = Date.now();
+    const lastSave = this.lastSaveTimes.get(client.id) || 0;
+    if (now - lastSave > 2000) {
+      this.lastSaveTimes.set(client.id, now);
+      this.usersService.updatePosition(player.userId, player.position, player.rotation)
+        .catch(err => console.error('Error guardando posición:', err));
+    }
   }
 
     @SubscribeMessage('move') handleMove(
@@ -180,18 +228,29 @@ handleRequestPlayers(@ConnectedSocket() client: Socket) {
   }
 
   @SubscribeMessage('logout')
-handleLogout(@ConnectedSocket() client: Socket) {
-  const player = this.players.get(client.id);
+  async handleLogout(@ConnectedSocket() client: Socket) {
+    const player = this.players.get(client.id);
 
-  if (player) {
-    console.log('👋 Logout voluntario:', client.id);
-    this.players.delete(client.id);
-    this.server.emit('player-left', client.id);
+    if (player) {
+      console.log('👋 Logout voluntario:', client.id);
+
+      // 💾 Guardado final al cerrar sesión (AWAITED)
+      if (player.position && player.position.x !== 0) {
+        await this.usersService
+          .updatePosition(player.userId, player.position, player.rotation)
+          .catch((err) =>
+            console.error('Error guardando posición en logout:', err),
+          );
+      }
+
+      this.players.delete(client.id);
+      this.lastSaveTimes.delete(client.id);
+      this.server.emit('player-left', client.id);
+    }
+
+    // 👇 SOLO CAMBIAMOS ROL, NO CERRAMOS SOCKET
+    client.data.role = 'spectator';
   }
-
-  // 👇 SOLO CAMBIAMOS ROL, NO CERRAMOS SOCKET
-  client.data.role = 'spectator';
-}
 
   @SubscribeMessage('ai-message')
   async handleAIMessage(

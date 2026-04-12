@@ -10,13 +10,18 @@ import { JwtAuthGuard } from './auth/jwt-auth.guard';
 import { RolesGuard } from './auth/guards/roles.guard';
 import { MultiplayerModule } from './multiplayer/multiplayer.module';
 import { ConfigModule } from '@nestjs/config';
+import { GamesModule } from './games/games.module';
+import { DiscordModule } from './discord/discord.module';
+import { SpotifyModule } from './spotify/spotify.module';
+import { MalModule } from './mal/mal.module';
+import { PixivModule } from './pixiv/pixiv.module';
 
 
 @Module({
   imports: [ConfigModule.forRoot({
       isGlobal: true, // 👈 CLAVE
     }),
-    DatabaseModule, UsersModule, AuthModule, AuthModule, MultiplayerModule], //
+    DatabaseModule, UsersModule, AuthModule, AuthModule, MultiplayerModule, GamesModule, DiscordModule, SpotifyModule, MalModule, PixivModule], //
   controllers: [AppController],
   providers: [
     AppService,

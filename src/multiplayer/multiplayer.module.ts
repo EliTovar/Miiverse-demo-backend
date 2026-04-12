@@ -4,9 +4,10 @@ import { Module } from '@nestjs/common';
 import { MultiplayerGateway } from './multiplayer.gateway';
 import { AuthModule } from 'src/auth/auth.module';
 import { AIModule } from 'src/ai/ai.module';
+import { UsersModule } from 'src/users/users.module';
 
 @Module({
-    imports: [AuthModule, AIModule], //JwtModule y IA
+    imports: [AuthModule, UsersModule, AIModule], //JwtModule, Users y IA
     providers: [MultiplayerGateway],
 })
 export class MultiplayerModule {}
