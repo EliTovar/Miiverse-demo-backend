@@ -15,13 +15,14 @@ import { DiscordModule } from './discord/discord.module';
 import { SpotifyModule } from './spotify/spotify.module';
 import { MalModule } from './mal/mal.module';
 import { PixivModule } from './pixiv/pixiv.module';
+import { MiiverseModule } from './miiverse/miiverse.module';
 
 
 @Module({
   imports: [ConfigModule.forRoot({
-      isGlobal: true, // 👈 CLAVE
+      isGlobal: true,
     }),
-    DatabaseModule, UsersModule, AuthModule, AuthModule, MultiplayerModule, GamesModule, DiscordModule, SpotifyModule, MalModule, PixivModule], //
+    DatabaseModule, UsersModule, AuthModule, AuthModule, MultiplayerModule, GamesModule, DiscordModule, SpotifyModule, MalModule, PixivModule, MiiverseModule],
   controllers: [AppController],
   providers: [
     AppService,

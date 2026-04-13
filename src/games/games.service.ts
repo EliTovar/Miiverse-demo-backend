@@ -2,6 +2,11 @@ import { Injectable } from '@nestjs/common';
 
 @Injectable()
 export class GamesService {
+  // 🛡 Variables de caché para Steam
+  private cachedSteamData: any | null = null;
+  private lastFetchTime: number = 0;
+  private readonly CACHE_DURATION = 30 * 60 * 1000; // 30 minutos
+
   async getTrendingGames() {
     return this.fetchFromSteamStore('top_sellers');
   }
@@ -10,10 +15,46 @@ export class GamesService {
     return this.fetchFromSteamStore('new_releases');
   }
 
+  // 🕵️ Lista de User-Agents aleatorios para evadir bloqueos
+  private getRandomUserAgent(): string {
+    const userAgents = [
+      'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+      'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/119.0.0.0 Safari/537.36',
+      'Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:122.0) Gecko/20100101 Firefox/122.0',
+      'Mozilla/5.0 (Macintosh; Intel Mac OS X 10.15; rv:121.0) Gecko/20100101 Firefox/121.0'
+    ];
+    return userAgents[Math.floor(Math.random() * userAgents.length)];
+  }
+
   private async fetchFromSteamStore(category: string) {
-    try {
-      const response = await fetch('https://store.steampowered.com/api/featuredcategories');
-      const data = await response.json();
+    const now = Date.now();
+    let data = this.cachedSteamData;
+
+    if (!data || (now - this.lastFetchTime) >= this.CACHE_DURATION) {
+      try {
+        console.log('🌐 Solicitando nuevos datos a Steam...');
+        const response = await fetch('https://store.steampowered.com/api/featuredcategories', {
+          headers: {
+             'User-Agent': this.getRandomUserAgent(),
+             'Accept': 'application/json'
+          }
+        });
+        
+        data = await response.json();
+        
+        // Guardar la respuesta completa en Caché
+        this.cachedSteamData = data;
+        this.lastFetchTime = now;
+        console.log('✅ Caché de Steam actualizada exitosamente.');
+      } catch (error) {
+        console.error(`Error fetching Steam Store category [${category}]:`, error.message);
+        // Si hay un error, usamos la caché vieja si existe, si no, retornamos vacío más abajo.
+      }
+    } else {
+       console.log(`📦 Retornando Steam (${category}) desde la CACHÉ.`);
+    }
+
+    if (!data) return [];
       const items = data[category]?.items || [];
       
       // -------------------------------------------------------------------------
@@ -29,10 +70,6 @@ export class GamesService {
         name: item.name,
         image: this.wrapProxy(item.large_capsule_image || item.header_image)
       })));
-    } catch (error) {
-      console.error(`Error fetching Steam Store category [${category}]:`, error.message);
-      return [];
-    }
   }
 
   private wrapProxy(url: string): string {
