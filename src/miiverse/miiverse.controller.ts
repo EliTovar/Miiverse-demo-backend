@@ -12,9 +12,12 @@ import { MiiverseService } from './miiverse.service';
 import { CreatePostDto } from './dto/create-post.dto';
 import { CurrentUser } from '../auth/decorator/current.decorator';
 import { JwtAuthGuard } from '../auth/jwt-auth.guard';
+import { Logger, UnauthorizedException } from '@nestjs/common';
 
 @Controller('miiverse')
 export class MiiverseController {
+  private readonly logger = new Logger(MiiverseController.name);
+
   constructor(private readonly miiverseService: MiiverseService) {}
 
   /** Feed público – accessible por cualquier visitante (incluso sin JWT) */
@@ -33,6 +36,11 @@ export class MiiverseController {
     @Body() dto: CreatePostDto,
     @CurrentUser() user: any,
   ) {
+    if (!user || !user.id || !user.username) {
+      this.logger.error('❌ Intento de publicación sin usuario válido:', user);
+      throw new UnauthorizedException('Debe iniciar sesión para publicar');
+    }
+
     const avatarUrl = `https://ui-avatars.com/api/?name=${encodeURIComponent(user.username)}&background=0070f3&color=fff&bold=true&size=64`;
     return this.miiverseService.createPost(dto, user.id, user.username, avatarUrl);
   }

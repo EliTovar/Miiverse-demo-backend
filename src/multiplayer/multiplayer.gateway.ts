@@ -199,14 +199,19 @@ handleRequestPlayers(@ConnectedSocket() client: Socket) {
     }
   }
 
-    @SubscribeMessage('move') handleMove(
-    @MessageBody() data: any,
+
+
+  @SubscribeMessage('show-post-bubble')
+  handleShowPostBubble(
+    @MessageBody() data: { drawing_url: string },
     @ConnectedSocket() client: Socket,
   ) {
-    client.broadcast.emit('remoteMove', {
+    if (client.data.role !== 'player') return;
+    
+    // Retransmitir a todos los demás jugadores
+    client.broadcast.emit('player-posted', {
       id: client.id,
-      position: data.position,
-      rotation: data.rotation,
+      drawing_url: data.drawing_url,
     });
   }
 
