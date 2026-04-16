@@ -1,9 +1,12 @@
 import { Injectable, Logger } from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
 
 @Injectable()
 export class MalService {
   private readonly logger = new Logger(MalService.name);
   private readonly jikanUrl = 'https://api.jikan.moe/v4';
+
+  constructor(private configService: ConfigService) {}
 
   // 🛡 Variables de caché para Jikan (Top Anime y Manga)
   private cachedAnime: any[] | null = null;
@@ -13,7 +16,8 @@ export class MalService {
   private readonly CACHE_DURATION = 1 * 60 * 60 * 1000; // 1 hora
 
   private wrapProxy(url: string): string {
-    return `http://192.168.100.15:3000/games/proxy?url=${encodeURIComponent(url)}`;
+    const baseUrl = this.configService.get<string>('BASE_URL') || 'http://localhost:3000';
+    return `${baseUrl}/games/proxy?url=${encodeURIComponent(url)}`;
   }
 
   // 🕵️ Lista de User-Agents aleatorios para evadir bloqueos
@@ -36,9 +40,15 @@ export class MalService {
 
     try {
       this.logger.log('🌐 Solicitando Top Anime a Jikan...');
+      
+      const controller = new AbortController();
+      const timeout = setTimeout(() => controller.abort(), 8000);
+
       const res = await fetch(`${this.jikanUrl}/top/anime?limit=5`, {
+        signal: controller.signal,
         headers: { 'User-Agent': this.getRandomUserAgent() }
       });
+      clearTimeout(timeout);
       const data = await res.json();
       
       const result = data.data.map((item, index) => ({
@@ -68,9 +78,15 @@ export class MalService {
 
     try {
       this.logger.log('🌐 Solicitando Top Manga a Jikan...');
+      
+      const controller = new AbortController();
+      const timeout = setTimeout(() => controller.abort(), 8000);
+
       const res = await fetch(`${this.jikanUrl}/top/manga?limit=5`, {
+        signal: controller.signal,
         headers: { 'User-Agent': this.getRandomUserAgent() }
       });
+      clearTimeout(timeout);
       const data = await res.json();
       
       const result = data.data.map((item, index) => ({

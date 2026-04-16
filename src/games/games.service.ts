@@ -1,11 +1,15 @@
-import { Injectable } from '@nestjs/common';
+import { Injectable, Logger } from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
 
 @Injectable()
 export class GamesService {
+  private readonly logger = new Logger(GamesService.name);
   // 🛡 Variables de caché para Steam
   private cachedSteamData: any | null = null;
   private lastFetchTime: number = 0;
   private readonly CACHE_DURATION = 30 * 60 * 1000; // 30 minutos
+
+  constructor(private configService: ConfigService) {}
 
   async getTrendingGames() {
     return this.fetchFromSteamStore('top_sellers');
@@ -33,13 +37,18 @@ export class GamesService {
     if (!data || (now - this.lastFetchTime) >= this.CACHE_DURATION) {
       try {
         console.log('🌐 Solicitando nuevos datos a Steam...');
+        
+        const controller = new AbortController();
+        const timeout = setTimeout(() => controller.abort(), 8000);
+
         const response = await fetch('https://store.steampowered.com/api/featuredcategories', {
+          signal: controller.signal,
           headers: {
              'User-Agent': this.getRandomUserAgent(),
              'Accept': 'application/json'
           }
         });
-        
+        clearTimeout(timeout);
         data = await response.json();
         
         // Guardar la respuesta completa en Caché
@@ -73,7 +82,8 @@ export class GamesService {
   }
 
   private wrapProxy(url: string): string {
-    return `http://192.168.100.15:3000/games/proxy?url=${encodeURIComponent(url)}`;
+    const baseUrl = this.configService.get<string>('BASE_URL') || 'http://localhost:3000';
+    return `${baseUrl}/games/proxy?url=${encodeURIComponent(url)}`;
   }
 
   async getImageUrl(appid: number): Promise<string> {
@@ -113,6 +123,7 @@ export class GamesService {
         contentType
       };
     } catch (e) {
+      this.logger.error(`❌ Proxy error fetching image: ${url} | ${e.message}`);
       throw e;
     }
   }

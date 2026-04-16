@@ -1,7 +1,10 @@
 import { Injectable } from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
 
 @Injectable()
 export class DiscordService {
+
+  constructor(private configService: ConfigService) {}
 
   /**
    * Obtiene los Top Servidores de Discord desde Top.gg
@@ -26,14 +29,20 @@ export class DiscordService {
 
   private async fetchFromTopGG(listType: string) {
     try {
+      const controller = new AbortController();
+      const timeout = setTimeout(() => controller.abort(), 8000);
+
       const response = await fetch(`https://top.gg/discord/servers/${listType}`, {
+        signal: controller.signal,
         headers: {
           'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
           'Accept': 'text/html,application/xhtml+xml',
           'Accept-Language': 'en-US,en;q=0.9',
         }
       });
-
+      
+      clearTimeout(timeout);
+      
       if (!response.ok) {
         console.warn(`Top.gg returned ${response.status}, using fallback data`);
         return this.getFallbackBots();
@@ -65,7 +74,7 @@ export class DiscordService {
       
       // La imagen a veces tiene class antes que src, o viceversa, pero lo anterior cubre la mayoría
       // Alternativa más segura:
-      const rawImgMatch = htmlContent.match(/<img[^>]+>/i);
+      const rawImgMatch = htmlContent.match(/<img[^+]+>/i);
       let name = 'Discord Server';
       let imageStr = '';
       
@@ -101,7 +110,8 @@ export class DiscordService {
   }
 
   private wrapProxy(url: string): string {
-    return `http://192.168.100.15:3000/games/proxy?url=${encodeURIComponent(url)}`;
+    const baseUrl = this.configService.get<string>('BASE_URL') || 'http://localhost:3000';
+    return `${baseUrl}/games/proxy?url=${encodeURIComponent(url)}`;
   }
 
   private getFallbackBots() {

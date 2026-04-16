@@ -1,9 +1,12 @@
 import { Injectable, Logger } from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
 
 @Injectable()
 export class PixivService {
   private readonly logger = new Logger(PixivService.name);
  
+  constructor(private configService: ConfigService) {}
+
   // 🛡 Variables clave para el sistema de Caché local
   private cachedData: any[] | null = null;
   private lastFetchTime: number = 0;
@@ -11,7 +14,8 @@ export class PixivService {
   private readonly CACHE_DURATION = 1 * 60 * 60 * 1000; 
 
   private wrapProxy(url: string): string {
-    return `http://192.168.100.15:3000/games/proxy?url=${encodeURIComponent(url)}`;
+    const baseUrl = this.configService.get<string>('BASE_URL') || 'http://localhost:3000';
+    return `${baseUrl}/games/proxy?url=${encodeURIComponent(url)}`;
   }
 
   // 🕵️ Lista de User-Agents aleatorios para simular navegadores reales y evadir bloqueos
@@ -37,8 +41,13 @@ export class PixivService {
 
     try {
       this.logger.log('🌐 Solicitando nuevos datos frescos a Pixiv...');
+      
+      const controller = new AbortController();
+      const timeout = setTimeout(() => controller.abort(), 8000);
+
       // URL actual: https://www.pixiv.net/ranking.php?mode=daily&content=manga (Manga All Ages)
       const res = await fetch('https://www.pixiv.net/ranking.php?mode=daily&content=manga', {
+        signal: controller.signal,
         headers: {
           'User-Agent': this.getRandomUserAgent(),
           'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8',
@@ -47,6 +56,7 @@ export class PixivService {
           'DNT': '1' // Petición de "Do Not Track"
         }
       });
+      clearTimeout(timeout);
       const html = await res.text();
       
       const items: { id: string; title: string; author: string }[] = [];

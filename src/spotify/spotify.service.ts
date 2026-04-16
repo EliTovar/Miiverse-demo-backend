@@ -1,9 +1,12 @@
 import { Injectable, Logger } from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
 
 @Injectable()
 export class SpotifyService {
   private readonly logger = new Logger(SpotifyService.name);
   private readonly limit = 5;
+
+  constructor(private configService: ConfigService) {}
 
   // 🛡 Variables de caché para Spotify / Kworb
   private cachedData: any[] | null = null;
@@ -11,7 +14,8 @@ export class SpotifyService {
   private readonly CACHE_DURATION = 1 * 60 * 60 * 1000; // 1 hora
 
   private wrapProxy(url: string): string {
-    return `http://192.168.100.15:3000/games/proxy?url=${encodeURIComponent(url)}`;
+    const baseUrl = this.configService.get<string>('BASE_URL') || 'http://localhost:3000';
+    return `${baseUrl}/games/proxy?url=${encodeURIComponent(url)}`;
   }
 
   // 🕵️ Lista de User-Agents aleatorios para evadir bloqueos
@@ -34,7 +38,12 @@ export class SpotifyService {
 
     try {
       this.logger.log('🌐 Solicitando nuevos datos frescos a Kworb (Spotify)...');
+      
+      const controller = new AbortController();
+      const timeout = setTimeout(() => controller.abort(), 8000);
+
       const response = await fetch('https://kworb.net/spotify/country/global_daily.html', {
+        signal: controller.signal,
         headers: {
           'User-Agent': this.getRandomUserAgent(),
           'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8',
@@ -42,6 +51,7 @@ export class SpotifyService {
           'Referer': 'https://kworb.net/'
         }
       });
+      clearTimeout(timeout);
       const html = await response.text();
       
       // Parsear la tabla de Kworb
@@ -84,7 +94,7 @@ export class SpotifyService {
       return results;
     } catch (e) {
       this.logger.error('❌ Failed to fetch Spotify Top 5 from Kworb', e.stack);
-      return this.cachedData || this.getFallbackSongs();
+      return this.cachedData || []; // Eliminamos getFallbackSongs() por petición del usuario
     }
   }
 
@@ -106,12 +116,6 @@ export class SpotifyService {
   }
 
   private getFallbackSongs() {
-    return [
-      { appid: 5001, name: 'Die With A Smile', author: 'Lady Gaga & Bruno Mars', image: this.wrapProxy('https://is1-ssl.mzstatic.com/image/thumb/Music211/v4/3d/0d/1b/3d0d1b6e-6e8e-c3c2-40f4-5f5f5f5f5f5f/24UMGIM74567.rgb.jpg/600x600bb.jpg') },
-      { appid: 5002, name: 'BIRDS OF A FEATHER', author: 'Billie Eilish', image: this.wrapProxy('https://is1-ssl.mzstatic.com/image/thumb/Music211/v4/a3/0d/1b/a30d1b6e-6e8e-c3c2-40f4-5f5f5f5f5f5f/24UMGIM74567.rgb.jpg/600x600bb.jpg') },
-      { appid: 5003, name: 'Espresso', author: 'Sabrina Carpenter', image: this.wrapProxy('https://is1-ssl.mzstatic.com/image/thumb/Music211/v4/b3/0d/1b/b30d1b6e-6e8e-c3c2-40f4-5f5f5f5f5f5f/24UMGIM74567.rgb.jpg/600x600bb.jpg') },
-      { appid: 5004, name: 'Good Luck, Babe!', author: 'Chappell Roan', image: this.wrapProxy('https://is1-ssl.mzstatic.com/image/thumb/Music211/v4/c3/0d/1b/c30d1b6e-6e8e-c3c2-40f4-5f5f5f5f5f5f/24UMGIM74567.rgb.jpg/600x600bb.jpg') },
-      { appid: 5005, name: 'I Had Some Help', author: 'Post Malone', image: this.wrapProxy('https://is1-ssl.mzstatic.com/image/thumb/Music211/v4/d3/0d/1b/d30d1b6e-6e8e-c3c2-40f4-5f5f5f5f5f5f/24UMGIM74567.rgb.jpg/600x600bb.jpg') }
-    ];
+    return []; // Ya no usamos canciones ficticias
   }
 }
