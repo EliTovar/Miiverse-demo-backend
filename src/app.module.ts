@@ -22,7 +22,7 @@ import { MiiverseModule } from './miiverse/miiverse.module';
   imports: [ConfigModule.forRoot({
       isGlobal: true,
     }),
-    DatabaseModule, UsersModule, AuthModule, AuthModule, MultiplayerModule, GamesModule, DiscordModule, SpotifyModule, MalModule, PixivModule, MiiverseModule],
+    DatabaseModule, UsersModule, AuthModule, MultiplayerModule, GamesModule, DiscordModule, SpotifyModule, MalModule, PixivModule, MiiverseModule],
   controllers: [AppController],
   providers: [
     AppService,
