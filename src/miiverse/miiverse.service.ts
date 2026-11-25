@@ -19,6 +19,19 @@ const ORDER_BY: Record<PostSort, string> = {
   popular: 'yeahs DESC, created_at DESC, id DESC',
 };
 
+/**
+ * Clave normalizada de una comunidad, en SQL. Hace que "Splatoon 3",
+ * "splatoon 3", "  SPLATOON   3 " o "Pokémon" / "Pokemon" sean la misma:
+ * minúsculas, sin acentos, cualquier signo pasa a espacio y se compactan
+ * los espacios. Se aplica al leer; en la BD se guarda lo que escribió el usuario.
+ */
+function communityKey(sqlExpr: string): string {
+  return `btrim(regexp_replace(
+    translate(lower(${sqlExpr}), 'áàäâãéèëêíìïîóòöôõúùüûñç', 'aaaaaeeeeiiiiooooouuuunc'),
+    '[^a-z0-9]+', ' ', 'g'))`;
+}
+const POST_COMMUNITY_KEY = communityKey('game_title');
+
 /** Paginación ya validada que reciben los métodos de lectura. */
 export interface PageQuery {
   page: number;
@@ -346,13 +359,15 @@ export class MiiverseService implements OnModuleInit {
   async getCommunities(search?: string): Promise<MiiverseCommunity[]> {
     const term = search?.trim();
     return this.db.query<MiiverseCommunity>(
-      `SELECT game_title AS name,
+      // Se agrupa por la clave normalizada. Como nombre visible se usa la
+      // variante más escrita (mode); si empatan, la primera alfabéticamente.
+      `SELECT MODE() WITHIN GROUP (ORDER BY game_title) AS name,
               COUNT(*)::int AS posts_count,
               MAX(created_at) AS last_post_at
          FROM miiverse_posts
-        WHERE game_title IS NOT NULL AND btrim(game_title) <> ''
-          AND ($1::text IS NULL OR game_title ILIKE '%' || $1 || '%')
-        GROUP BY game_title
+        WHERE ${POST_COMMUNITY_KEY} <> ''
+          AND ($1::text IS NULL OR ${POST_COMMUNITY_KEY} LIKE '%' || ${communityKey('$1')} || '%')
+        GROUP BY ${POST_COMMUNITY_KEY}
         ORDER BY posts_count DESC, name ASC`,
       [term ? term : null],
     );
@@ -360,18 +375,19 @@ export class MiiverseService implements OnModuleInit {
 
   async getCommunity(name: string, query: PageQuery): Promise<MiiverseCommunityDetail> {
     const [summary] = await this.db.query<Omit<MiiverseCommunityDetail, 'posts'>>(
-      `SELECT game_title AS name,
+      `SELECT MODE() WITHIN GROUP (ORDER BY game_title) AS name,
               COUNT(*)::int AS posts_count,
               COALESCE(SUM(yeahs), 0)::int AS yeahs_count
          FROM miiverse_posts
-        WHERE game_title = $1
-        GROUP BY game_title`,
+        WHERE ${POST_COMMUNITY_KEY} = ${communityKey('$1')}
+          AND ${POST_COMMUNITY_KEY} <> ''`,
       [name],
     );
-    if (!summary) throw new NotFoundException('La comunidad no existe');
+    if (!summary || summary.posts_count === 0) throw new NotFoundException('La comunidad no existe');
 
     const posts = await this.db.query<MiiversePost>(
-      `SELECT * FROM miiverse_posts WHERE game_title = $1
+      `SELECT * FROM miiverse_posts
+        WHERE ${POST_COMMUNITY_KEY} = ${communityKey('$1')} AND ${POST_COMMUNITY_KEY} <> ''
         ORDER BY ${ORDER_BY[query.sort]} LIMIT $2 OFFSET $3`,
       [name, query.limit, (query.page - 1) * query.limit],
     );
@@ -397,7 +413,7 @@ export class MiiverseService implements OnModuleInit {
               (ARRAY_AGG(mii_avatar_url ORDER BY created_at DESC))[1] AS avatar_url,
               COUNT(*)::int AS posts_count,
               COALESCE(SUM(yeahs), 0)::int AS yeahs_received,
-              COUNT(DISTINCT game_title)::int AS communities_count,
+              COUNT(DISTINCT NULLIF(${POST_COMMUNITY_KEY}, ''))::int AS communities_count,
               MIN(created_at) AS first_post_at
          FROM miiverse_posts
         WHERE username = $1
