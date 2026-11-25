@@ -6,6 +6,7 @@ import {
   MiiverseCommunityDetail,
   MiiversePost,
   MiiverseUserProfile,
+  MiiverseUserSummary,
   PostSort,
 } from './miiverse-post.entity';
 
@@ -401,6 +402,26 @@ export class MiiverseService implements OnModuleInit {
     );
     if (!post) throw new NotFoundException('La publicación no existe');
     return post;
+  }
+
+  /**
+   * Búsqueda de usuarios por nombre (sin distinguir mayúsculas). Solo salen
+   * quienes tienen posts, porque el perfil se construye a partir de ellos.
+   * Sin texto devuelve los más activos. Máximo 30 resultados.
+   */
+  async searchUsers(search?: string): Promise<MiiverseUserSummary[]> {
+    const term = search?.trim();
+    return this.db.query<MiiverseUserSummary>(
+      `SELECT username,
+              (ARRAY_AGG(mii_avatar_url ORDER BY created_at DESC))[1] AS avatar_url,
+              COUNT(*)::int AS posts_count
+         FROM miiverse_posts
+        WHERE $1::text IS NULL OR username ILIKE '%' || $1 || '%'
+        GROUP BY username
+        ORDER BY posts_count DESC, username ASC
+        LIMIT 30`,
+      [term ? term : null],
+    );
   }
 
   /**

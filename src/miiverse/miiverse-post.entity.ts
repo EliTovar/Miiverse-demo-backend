@@ -39,3 +39,10 @@ export interface MiiverseUserProfile {
   first_post_at: Date;
   posts: MiiversePost[];
 }
+
+/** Resultado de la búsqueda de usuarios (solo usuarios con posts). */
+export interface MiiverseUserSummary {
+  username: string;
+  avatar_url: string | null;
+  posts_count: number;
+}

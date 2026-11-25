@@ -95,6 +95,12 @@ export class MiiverseController {
     return this.miiverseService.getPost(id);
   }
 
+  /** Buscar usuarios por nombre (`q`). Sin `q`, los más activos. */
+  @Get('users')
+  searchUsers(@Query('q') q?: string) {
+    return this.miiverseService.searchUsers(q);
+  }
+
   /** Perfil público de un usuario + una página de sus posts. */
   @Get('users/:username')
   getUserProfile(
