@@ -103,7 +103,7 @@ export class PixivService {
       // 💾 Guardar resultado exitoso en caché
       this.cachedData = result;
       this.lastFetchTime = now;
-      this.logger.log('✅ Caché de Pixiv actualizada exitosamente. Próxima actualización requerida en 6 horas.');
+      this.logger.log('✅ Caché de Pixiv actualizada exitosamente. Próxima actualización en 1 hora.');
 
       return result;
 

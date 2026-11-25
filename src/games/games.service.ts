@@ -7,7 +7,7 @@ export class GamesService {
   // 🛡 Variables de caché para Steam
   private cachedSteamData: any | null = null;
   private lastFetchTime: number = 0;
-  private readonly CACHE_DURATION = 30 * 60 * 1000; // 30 minutos
+  private readonly CACHE_DURATION = 1 * 60 * 60 * 1000; // 1 hora
 
   constructor(private configService: ConfigService) {}
 
@@ -71,7 +71,12 @@ export class GamesService {
       // Cambia el '5' por el número de juegos que prefieras (ej: 3, 5, 10).
       // -------------------------------------------------------------------------
       const gameLimit = 5; 
-      const topGames = items.slice(0, gameLimit);
+      // Steam a veces repite el mismo producto (mismo id) en la lista: nos quedamos
+      // con la primera aparición para no mostrar duplicados.
+      const uniqueItems = items.filter(
+        (item: any, index: number) => items.findIndex((other: any) => other.id === item.id) === index,
+      );
+      const topGames = uniqueItems.slice(0, gameLimit);
       // -------------------------------------------------------------------------
 
       return Promise.all(topGames.map(async (item: any) => ({

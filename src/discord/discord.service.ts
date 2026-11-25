@@ -27,7 +27,21 @@ export class DiscordService {
   private botLimit = 5;
   // -------------------------------------------------------------------------
 
+  // Caché de 1 hora por lista, igual que el resto de cuadros.
+  private readonly CACHE_DURATION = 1 * 60 * 60 * 1000;
+  private readonly cache = new Map<string, { data: any[]; time: number }>();
+
   private async fetchFromTopGG(listType: string) {
+    const cached = this.cache.get(listType);
+    if (cached && Date.now() - cached.time < this.CACHE_DURATION) {
+      return cached.data;
+    }
+    const data = await this.requestTopGG(listType);
+    this.cache.set(listType, { data, time: Date.now() });
+    return data;
+  }
+
+  private async requestTopGG(listType: string): Promise<any[]> {
     try {
       const controller = new AbortController();
       const timeout = setTimeout(() => controller.abort(), 8000);
