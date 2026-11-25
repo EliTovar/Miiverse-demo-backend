@@ -44,7 +44,8 @@ export class DiscordService {
   private readonly serverLimit = 5;
   // -------------------------------------------------------------------------
 
-  private readonly CACHE_DURATION = 1 * 60 * 60 * 1000; // 1 hora
+  // Decisión de Eli: los servidores de Discord se renuevan cada 5 horas.
+  private readonly CACHE_DURATION = 5 * 60 * 60 * 1000; // 5 horas
   private cache: { data: DiscordServerItem[]; time: number } | null = null;
 
   constructor(private configService: ConfigService) {}
