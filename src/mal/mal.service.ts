@@ -54,14 +54,17 @@ export class MalService {
     return `${baseUrl}/games/proxy?url=${encodeURIComponent(url)}`;
   }
 
-  /** Anime más populares (equivale al antiguo "Most Popular"). */
+  // TRENDING_DESC = lo que más actividad tiene en AniList estos días
+  // (en vivo), no el ranking histórico de siempre.
+
+  /** Anime en tendencia ahora. */
   getTopAnime() {
-    return this.getTop('ANIME', 'POPULARITY_DESC', 6000);
+    return this.getTop('ANIME', 'TRENDING_DESC', 6000);
   }
 
-  /** Manga mejor valorados (equivale al antiguo "Top Rated"). */
+  /** Manga en tendencia ahora. */
   getTopManga() {
-    return this.getTop('MANGA', 'SCORE_DESC', 7000);
+    return this.getTop('MANGA', 'TRENDING_DESC', 7000);
   }
 
   private async getTop(type: MediaType, sort: string, idBase: number): Promise<BillboardItem[]> {
