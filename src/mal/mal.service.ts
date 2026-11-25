@@ -1,109 +1,111 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 
+/** Formato que esperan los billboards del frontend (interfaz SteamGame). */
+export interface BillboardItem {
+  appid: number;
+  name: string;
+  author: string;
+  image: string;
+}
+
+interface AniListMedia {
+  title: { userPreferred: string | null; english: string | null };
+  coverImage: { extraLarge: string | null; large: string | null };
+  studios: { nodes: { name: string }[] };
+  staff: { nodes: { name: { full: string } }[] };
+}
+
+type MediaType = 'ANIME' | 'MANGA';
+
+/**
+ * Top Anime y Top Manga.
+ *
+ * Antes usaba Jikan (API no oficial de MyAnimeList), pero dejó de responder
+ * desde la red del proyecto (la conexión se agota). Ahora usa la API GraphQL
+ * pública de AniList: gratis, sin clave y con límite de 90 peticiones/minuto.
+ * La caché de 1 hora deja el consumo muy por debajo de ese límite.
+ */
 @Injectable()
 export class MalService {
   private readonly logger = new Logger(MalService.name);
-  private readonly jikanUrl = 'https://api.jikan.moe/v4';
+  private readonly anilistUrl = 'https://graphql.anilist.co';
+  private readonly CACHE_DURATION = 1 * 60 * 60 * 1000; // 1 hora
+  private readonly cache = new Map<MediaType, { data: BillboardItem[]; time: number }>();
+
+  // Pedimos solo los campos que usamos; isAdult:false evita contenido +18.
+  private readonly query = `
+    query ($type: MediaType, $sort: [MediaSort]) {
+      Page(perPage: 5) {
+        media(type: $type, sort: $sort, isAdult: false) {
+          title { userPreferred english }
+          coverImage { extraLarge large }
+          studios(isMain: true) { nodes { name } }
+          staff(perPage: 1, sort: RELEVANCE) { nodes { name { full } } }
+        }
+      }
+    }
+  `;
 
   constructor(private configService: ConfigService) {}
-
-  // 🛡 Variables de caché para Jikan (Top Anime y Manga)
-  private cachedAnime: any[] | null = null;
-  private lastAnimeFetch: number = 0;
-  private cachedManga: any[] | null = null;
-  private lastMangaFetch: number = 0;
-  private readonly CACHE_DURATION = 1 * 60 * 60 * 1000; // 1 hora
 
   private wrapProxy(url: string): string {
     const baseUrl = this.configService.get<string>('BASE_URL') || 'http://localhost:3000';
     return `${baseUrl}/games/proxy?url=${encodeURIComponent(url)}`;
   }
 
-  // 🕵️ Lista de User-Agents aleatorios para evadir bloqueos
-  private getRandomUserAgent(): string {
-    const userAgents = [
-      'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-      'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/119.0.0.0 Safari/537.36',
-      'Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:122.0) Gecko/20100101 Firefox/122.0',
-      'Mozilla/5.0 (Macintosh; Intel Mac OS X 10.15; rv:121.0) Gecko/20100101 Firefox/121.0'
-    ];
-    return userAgents[Math.floor(Math.random() * userAgents.length)];
+  /** Anime más populares (equivale al antiguo "Most Popular"). */
+  getTopAnime() {
+    return this.getTop('ANIME', 'POPULARITY_DESC', 6000);
   }
 
-  async getTopAnime() {
-    const now = Date.now();
-    if (this.cachedAnime && (now - this.lastAnimeFetch) < this.CACHE_DURATION) {
-      this.logger.log('📦 Retornando Top Anime desde la CACHÉ.');
-      return this.cachedAnime;
+  /** Manga mejor valorados (equivale al antiguo "Top Rated"). */
+  getTopManga() {
+    return this.getTop('MANGA', 'SCORE_DESC', 7000);
+  }
+
+  private async getTop(type: MediaType, sort: string, idBase: number): Promise<BillboardItem[]> {
+    const cached = this.cache.get(type);
+    if (cached && Date.now() - cached.time < this.CACHE_DURATION) {
+      return cached.data;
     }
 
     try {
-      this.logger.log('🌐 Solicitando Top Anime a Jikan...');
-      
-      const controller = new AbortController();
-      const timeout = setTimeout(() => controller.abort(), 8000);
-
-      const res = await fetch(`${this.jikanUrl}/top/anime?limit=5`, {
-        signal: controller.signal,
-        headers: { 'User-Agent': this.getRandomUserAgent() }
+      this.logger.log(`🌐 Solicitando top ${type} a AniList...`);
+      const res = await fetch(this.anilistUrl, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
+        body: JSON.stringify({ query: this.query, variables: { type, sort: [sort] } }),
+        signal: AbortSignal.timeout(8000),
       });
-      clearTimeout(timeout);
-      const data = await res.json();
-      
-      const result = data.data.map((item, index) => ({
-        appid: 6000 + index,
-        name: item.title,
-        author: item.authors?.map((a: any) => a.name).join(', ') || 'Unknown Author',
-        image: this.wrapProxy(item.images.jpg.large_image_url)
-      }));
 
-      // Guardar en caché
-      this.cachedAnime = result;
-      this.lastAnimeFetch = now;
-      return result;
+      if (!res.ok) {
+        throw new Error(`AniList respondió ${res.status}`);
+      }
 
-    } catch (e) {
-      this.logger.error('❌ Error fetching Top Anime from Jikan', e);
-      return this.cachedAnime || [];
-    }
-  }
+      const json = await res.json();
+      const media: AniListMedia[] = json?.data?.Page?.media ?? [];
 
-  async getTopManga() {
-    const now = Date.now();
-    if (this.cachedManga && (now - this.lastMangaFetch) < this.CACHE_DURATION) {
-      this.logger.log('📦 Retornando Top Manga desde la CACHÉ.');
-      return this.cachedManga;
-    }
+      const result = media.map((item, index) => {
+        const cover = item.coverImage.extraLarge ?? item.coverImage.large;
+        // Anime: estudio principal. Manga: autor (primer miembro del staff).
+        const author =
+          type === 'ANIME' ? item.studios.nodes[0]?.name : item.staff.nodes[0]?.name.full;
 
-    try {
-      this.logger.log('🌐 Solicitando Top Manga a Jikan...');
-      
-      const controller = new AbortController();
-      const timeout = setTimeout(() => controller.abort(), 8000);
-
-      const res = await fetch(`${this.jikanUrl}/top/manga?limit=5`, {
-        signal: controller.signal,
-        headers: { 'User-Agent': this.getRandomUserAgent() }
+        return {
+          appid: idBase + index,
+          name: item.title.english ?? item.title.userPreferred ?? 'Sin título',
+          author: author ?? 'Unknown Author',
+          image: cover ? this.wrapProxy(cover) : '',
+        };
       });
-      clearTimeout(timeout);
-      const data = await res.json();
-      
-      const result = data.data.map((item, index) => ({
-        appid: 7000 + index,
-        name: item.title,
-        author: item.authors?.map((a: any) => a.name).join(', ') || 'Unknown Author',
-        image: this.wrapProxy(item.images.jpg.large_image_url)
-      }));
 
-      // Guardar en caché
-      this.cachedManga = result;
-      this.lastMangaFetch = now;
+      this.cache.set(type, { data: result, time: Date.now() });
       return result;
-
     } catch (e) {
-      this.logger.error('❌ Error fetching Top Manga from Jikan', e);
-      return this.cachedManga || [];
+      this.logger.error(`❌ Error obteniendo top ${type} de AniList: ${(e as Error).message}`);
+      // Si falla, devolvemos lo último que funcionó (aunque esté caducado).
+      return cached?.data ?? [];
     }
   }
 }
