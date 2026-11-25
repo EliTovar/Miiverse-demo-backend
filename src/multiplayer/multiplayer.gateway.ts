@@ -262,6 +262,12 @@ handleRequestPlayers(@ConnectedSocket() client: Socket) {
     @MessageBody() data: { message: string },
     @ConnectedSocket() client: Socket,
   ) {
+    // Solo usuarios con sesión: evita que cualquiera gaste la cuota de Gemini.
+    if (client.data.role !== 'player') {
+      client.emit('ai-response', { text: '⚠️ Debes iniciar sesión para usar la IA.', isError: true });
+      return;
+    }
+
     const player = this.players.get(client.id);
     const username = player?.username || 'Invitado';
 

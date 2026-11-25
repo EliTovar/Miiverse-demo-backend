@@ -11,7 +11,8 @@ import {
 import { MiiverseService } from './miiverse.service';
 import { CreatePostDto } from './dto/create-post.dto';
 import { CurrentUser } from '../auth/decorator/current.decorator';
-import { JwtAuthGuard } from '../auth/jwt-auth.guard';
+import { AuthRequiredGuard } from '../auth/guards/auth-required.guard';
+import type { AuthUser } from '../auth/interfaces/auth.user.interface';
 import { Logger, UnauthorizedException } from '@nestjs/common';
 
 @Controller('miiverse')
@@ -31,10 +32,10 @@ export class MiiverseController {
 
   /** Publicar un post – requiere estar autenticado */
   @Post('posts')
-  @UseGuards(JwtAuthGuard)
+  @UseGuards(AuthRequiredGuard)
   createPost(
     @Body() dto: CreatePostDto,
-    @CurrentUser() user: any,
+    @CurrentUser() user: AuthUser,
   ) {
     if (!user || !user.id || !user.username) {
       this.logger.error('❌ Intento de publicación sin usuario válido:', user);
@@ -47,10 +48,10 @@ export class MiiverseController {
 
   /** Toggle Yeah en un post – requiere estar autenticado */
   @Post('posts/:id/yeah')
-  @UseGuards(JwtAuthGuard)
+  @UseGuards(AuthRequiredGuard)
   toggleYeah(
     @Param('id', ParseIntPipe) postId: number,
-    @CurrentUser() user: any,
+    @CurrentUser() user: AuthUser,
   ) {
     return this.miiverseService.toggleYeah(postId, user.id);
   }

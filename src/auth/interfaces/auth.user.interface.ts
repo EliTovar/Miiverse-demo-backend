@@ -1,7 +1,7 @@
 import { Role } from '../constants/roles.enum';
 
 export interface AuthUser {
-  userId: number;
+  id: number; // JwtStrategy.validate() devuelve `id` (antes `userId`)
   username: string;
   role: Role;
 }

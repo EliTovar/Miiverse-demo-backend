@@ -3,7 +3,7 @@ import { Body, Controller, Post, Get, Req, UseGuards } from '@nestjs/common';
 import { Request } from 'express';
 import { AuthService } from './auth.service';
 import { LoginDto } from './interfaces/login.dto';
-import { JwtAuthGuard } from './jwt-auth.guard';
+import { AuthRequiredGuard } from './guards/auth-required.guard';
 import { RegisterDto } from 'src/users/dto/register-user.dto';
 
 interface UserPayload {
@@ -28,7 +28,7 @@ export class AuthController {
     return this.authService.register(dto);
   }
 
-  @UseGuards(JwtAuthGuard)
+  @UseGuards(AuthRequiredGuard)
   @Get('profile')
   profile(@Req() req: Request & { user: UserPayload }): UserPayload {
     return req.user;

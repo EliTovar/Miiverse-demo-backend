@@ -1,6 +1,7 @@
 import { Module } from '@nestjs/common';
 import { PassportModule } from '@nestjs/passport';
 import { JwtModule } from '@nestjs/jwt';
+import { ConfigService } from '@nestjs/config';
 import { AuthService } from './auth.service';
 import { AuthController } from './auth.controller';
 import { JwtStrategy } from './jwt.strategy';
@@ -11,9 +12,13 @@ import { AdminController } from 'src/users/admin/admin.controller';
   imports: [
     DatabaseModule,
     PassportModule,
-    JwtModule.register({
-      secret: 'SUPER_SECRET_KEY',
-      signOptions: { expiresIn: '1h' },
+    // registerAsync: el secreto se lee cuando ConfigModule ya cargó el .env
+    JwtModule.registerAsync({
+      inject: [ConfigService],
+      useFactory: (config: ConfigService) => ({
+        secret: config.getOrThrow<string>('JWT_SECRET'),
+        signOptions: { expiresIn: '1h' },
+      }),
     }),
   ],
   controllers: [AuthController, AdminController],
