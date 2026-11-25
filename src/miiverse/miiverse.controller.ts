@@ -8,12 +8,26 @@ import {
   Query,
   UseGuards,
 } from '@nestjs/common';
-import { MiiverseService } from './miiverse.service';
+import { MiiverseService, PageQuery } from './miiverse.service';
+import { PostSort } from './miiverse-post.entity';
 import { CreatePostDto } from './dto/create-post.dto';
 import { CurrentUser } from '../auth/decorator/current.decorator';
 import { AuthRequiredGuard } from '../auth/guards/auth-required.guard';
 import type { AuthUser } from '../auth/interfaces/auth.user.interface';
 import { Logger, UnauthorizedException } from '@nestjs/common';
+
+const SORTS: PostSort[] = ['recent', 'oldest', 'popular'];
+
+/**
+ * Convierte los parámetros de la URL en una paginación segura: página >= 1,
+ * límite entre 1 y 50 y un orden de la lista permitida (si no, 'recent').
+ */
+function toPageQuery(page?: string, limit?: string, sort?: string): PageQuery {
+  const pageNum = Math.max(1, Math.floor(Number(page)) || 1);
+  const limitNum = Math.min(50, Math.max(1, Math.floor(Number(limit)) || 20));
+  const sortValue = SORTS.includes(sort as PostSort) ? (sort as PostSort) : 'recent';
+  return { page: pageNum, limit: limitNum, sort: sortValue };
+}
 
 @Controller('miiverse')
 export class MiiverseController {
@@ -54,5 +68,41 @@ export class MiiverseController {
     @CurrentUser() user: AuthUser,
   ) {
     return this.miiverseService.toggleYeah(postId, user.id);
+  }
+
+  // ─── Lectura estilo Archiverse (públicas, sin JWT) ─────────────────────────
+
+  /** Lista de comunidades (a partir de game_title). `q` filtra por nombre. */
+  @Get('communities')
+  getCommunities(@Query('q') q?: string) {
+    return this.miiverseService.getCommunities(q);
+  }
+
+  /** Resumen de una comunidad + una página de sus posts. */
+  @Get('communities/:name')
+  getCommunity(
+    @Param('name') name: string,
+    @Query('page') page?: string,
+    @Query('limit') limit?: string,
+    @Query('sort') sort?: string,
+  ) {
+    return this.miiverseService.getCommunity(name, toPageQuery(page, limit, sort));
+  }
+
+  /** Un post concreto. */
+  @Get('posts/:id')
+  getPost(@Param('id', ParseIntPipe) id: number) {
+    return this.miiverseService.getPost(id);
+  }
+
+  /** Perfil público de un usuario + una página de sus posts. */
+  @Get('users/:username')
+  getUserProfile(
+    @Param('username') username: string,
+    @Query('page') page?: string,
+    @Query('limit') limit?: string,
+    @Query('sort') sort?: string,
+  ) {
+    return this.miiverseService.getUserProfile(username, toPageQuery(page, limit, sort));
   }
 }

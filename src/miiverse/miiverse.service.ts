@@ -1,7 +1,30 @@
-import { Injectable, Logger, OnModuleInit } from '@nestjs/common';
+import { Injectable, Logger, NotFoundException, OnModuleInit } from '@nestjs/common';
 import { DatabaseService } from '../database/database.service';
 import { CreatePostDto } from './dto/create-post.dto';
-import { MiiversePost } from './miiverse-post.entity';
+import {
+  MiiverseCommunity,
+  MiiverseCommunityDetail,
+  MiiversePost,
+  MiiverseUserProfile,
+  PostSort,
+} from './miiverse-post.entity';
+
+/**
+ * Orden permitido -> fragmento SQL. Se usa una lista cerrada para no meter
+ * nunca texto del usuario en el ORDER BY (evita inyección SQL).
+ */
+const ORDER_BY: Record<PostSort, string> = {
+  recent: 'created_at DESC, id DESC',
+  oldest: 'created_at ASC, id ASC',
+  popular: 'yeahs DESC, created_at DESC, id DESC',
+};
+
+/** Paginación ya validada que reciben los métodos de lectura. */
+export interface PageQuery {
+  page: number;
+  limit: number;
+  sort: PostSort;
+}
 
 // ─── Seed data ────────────────────────────────────────────────────────────────
 // Datos de inicio inspirados en publicaciones reales de Miiverse.
@@ -315,5 +338,79 @@ export class MiiverseService implements OnModuleInit {
       [postId],
     );
     return { yeahs };
+  }
+
+  // ─── Lectura estilo Archiverse (fase 2) ────────────────────────────────────
+  // Las comunidades no tienen tabla propia: salen de `game_title` de los posts.
+
+  async getCommunities(search?: string): Promise<MiiverseCommunity[]> {
+    const term = search?.trim();
+    return this.db.query<MiiverseCommunity>(
+      `SELECT game_title AS name,
+              COUNT(*)::int AS posts_count,
+              MAX(created_at) AS last_post_at
+         FROM miiverse_posts
+        WHERE game_title IS NOT NULL AND btrim(game_title) <> ''
+          AND ($1::text IS NULL OR game_title ILIKE '%' || $1 || '%')
+        GROUP BY game_title
+        ORDER BY posts_count DESC, name ASC`,
+      [term ? term : null],
+    );
+  }
+
+  async getCommunity(name: string, query: PageQuery): Promise<MiiverseCommunityDetail> {
+    const [summary] = await this.db.query<Omit<MiiverseCommunityDetail, 'posts'>>(
+      `SELECT game_title AS name,
+              COUNT(*)::int AS posts_count,
+              COALESCE(SUM(yeahs), 0)::int AS yeahs_count
+         FROM miiverse_posts
+        WHERE game_title = $1
+        GROUP BY game_title`,
+      [name],
+    );
+    if (!summary) throw new NotFoundException('La comunidad no existe');
+
+    const posts = await this.db.query<MiiversePost>(
+      `SELECT * FROM miiverse_posts WHERE game_title = $1
+        ORDER BY ${ORDER_BY[query.sort]} LIMIT $2 OFFSET $3`,
+      [name, query.limit, (query.page - 1) * query.limit],
+    );
+    return { ...summary, posts };
+  }
+
+  async getPost(id: number): Promise<MiiversePost> {
+    const [post] = await this.db.query<MiiversePost>(
+      `SELECT * FROM miiverse_posts WHERE id = $1`,
+      [id],
+    );
+    if (!post) throw new NotFoundException('La publicación no existe');
+    return post;
+  }
+
+  /**
+   * Perfil público a partir de los posts del usuario. Se busca por `username`
+   * porque los posts de ejemplo no tienen `user_id`. No expone email ni rol.
+   */
+  async getUserProfile(username: string, query: PageQuery): Promise<MiiverseUserProfile> {
+    const [summary] = await this.db.query<Omit<MiiverseUserProfile, 'posts'>>(
+      `SELECT username,
+              (ARRAY_AGG(mii_avatar_url ORDER BY created_at DESC))[1] AS avatar_url,
+              COUNT(*)::int AS posts_count,
+              COALESCE(SUM(yeahs), 0)::int AS yeahs_received,
+              COUNT(DISTINCT game_title)::int AS communities_count,
+              MIN(created_at) AS first_post_at
+         FROM miiverse_posts
+        WHERE username = $1
+        GROUP BY username`,
+      [username],
+    );
+    if (!summary) throw new NotFoundException('El usuario no tiene publicaciones');
+
+    const posts = await this.db.query<MiiversePost>(
+      `SELECT * FROM miiverse_posts WHERE username = $1
+        ORDER BY ${ORDER_BY[query.sort]} LIMIT $2 OFFSET $3`,
+      [username, query.limit, (query.page - 1) * query.limit],
+    );
+    return { ...summary, posts };
   }
 }
