@@ -1,175 +1,135 @@
-import { Injectable } from '@nestjs/common';
+import { Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 
+/** Formato que consume el frontend (DiscordBot en DiscordService del frontend). */
+export interface DiscordServerItem {
+  id: string;
+  name: string;
+  votes: string; // se mantiene el nombre por compatibilidad: ahora son los miembros
+  members: number;
+  online: number;
+  description: string;
+  image: string;
+  url: string;
+}
+
+/**
+ * Servidores de Discord más populares, con datos en vivo.
+ *
+ * Antes se hacía scraping de Top.gg, pero Top.gg bloquea a propósito las
+ * peticiones automáticas (403) y su API oficial no lista servidores.
+ *
+ * Ahora se usa la API pública de invitaciones de Discord
+ * (`GET /invites/{code}?with_counts=true`), que no necesita token y devuelve
+ * el número de miembros y de personas en línea de cada servidor.
+ *
+ * Limitación: Discord no publica un ranking global. Por eso consultamos una lista
+ * de servidores públicos grandes (CANDIDATE_INVITES) y los ordenamos con sus datos
+ * en vivo. Los números son reales; la lista de candidatos la elegimos nosotros.
+ */
 @Injectable()
 export class DiscordService {
+  private readonly logger = new Logger(DiscordService.name);
+
+  // -------------------------------------------------------------------------
+  // 🎮 SERVIDORES CANDIDATOS (MODIFICA AQUÍ)
+  // Códigos de invitación "vanity" (discord.gg/<código>) de servidores públicos.
+  // Máximo ~15: Discord limita las peticiones seguidas a este endpoint (429).
+  // -------------------------------------------------------------------------
+  private readonly CANDIDATE_INVITES = [
+    'midjourney', 'minecraft', 'marvelrivals', 'valorant', 'genshinimpact',
+    'fortnite', 'honkaistarrail', 'wutheringwaves', 'zenlesszonezero',
+    'rocketleague', 'lofigirl', 'apexlegends', 'openai', 'overwatch', 'terraria',
+  ];
+  private readonly serverLimit = 5;
+  // -------------------------------------------------------------------------
+
+  private readonly CACHE_DURATION = 1 * 60 * 60 * 1000; // 1 hora
+  private cache: { data: DiscordServerItem[]; time: number } | null = null;
 
   constructor(private configService: ConfigService) {}
 
-  /**
-   * Obtiene los Top Servidores de Discord desde Top.gg
-   */
-  async getTopBots() {
-    return this.fetchFromTopGG('list/top');
+  /** Top por número de miembros. */
+  async getTopBots(): Promise<DiscordServerItem[]> {
+    const servers = await this.getServers();
+    return [...servers].sort((a, b) => b.members - a.members).slice(0, this.serverLimit);
   }
 
-  /**
-   * Obtiene los Servidores Trending de Discord desde Top.gg
-   */
-  async getTrendingBots() {
-    return this.fetchFromTopGG('list/trending');
+  /** "Trending": los que tienen más gente en línea ahora mismo. */
+  async getTrendingBots(): Promise<DiscordServerItem[]> {
+    const servers = await this.getServers();
+    return [...servers].sort((a, b) => b.online - a.online).slice(0, this.serverLimit);
   }
 
-  // -------------------------------------------------------------------------
-  // 🎮 CANTIDAD DE BOTS A MOSTRAR (MODIFICA AQUÍ)
-  // Cambia el '5' por el número de bots que prefieras (ej: 3, 5, 10).
-  // -------------------------------------------------------------------------
-  private botLimit = 5;
-  // -------------------------------------------------------------------------
-
-  // Caché de 1 hora por lista, igual que el resto de cuadros.
-  private readonly CACHE_DURATION = 1 * 60 * 60 * 1000;
-  private readonly cache = new Map<string, { data: any[]; time: number }>();
-
-  private async fetchFromTopGG(listType: string) {
-    const cached = this.cache.get(listType);
-    if (cached && Date.now() - cached.time < this.CACHE_DURATION) {
-      return cached.data;
+  private async getServers(): Promise<DiscordServerItem[]> {
+    if (this.cache && Date.now() - this.cache.time < this.CACHE_DURATION) {
+      return this.cache.data;
     }
-    const data = await this.requestTopGG(listType);
-    this.cache.set(listType, { data, time: Date.now() });
-    return data;
-  }
 
-  private async requestTopGG(listType: string): Promise<any[]> {
-    try {
-      const controller = new AbortController();
-      const timeout = setTimeout(() => controller.abort(), 8000);
+    this.logger.log('🌐 Consultando servidores en la API de invitaciones de Discord...');
+    const servers: DiscordServerItem[] = [];
 
-      const response = await fetch(`https://top.gg/discord/servers/${listType}`, {
-        signal: controller.signal,
-        headers: {
-          'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-          'Accept': 'text/html,application/xhtml+xml',
-          'Accept-Language': 'en-US,en;q=0.9',
-        }
-      });
-      
-      clearTimeout(timeout);
-      
-      if (!response.ok) {
-        console.warn(`Top.gg returned ${response.status}, using fallback data`);
-        return this.getFallbackBots();
-      }
-
-      const html = await response.text();
-      return this.parseTopGGHTML(html);
-    } catch (error) {
-      console.error('Error fetching Top.gg:', error.message);
-      return this.getFallbackBots();
-    }
-  }
-
-  private parseTopGGHTML(html: string) {
-    const servers: any[] = [];
-
-    // Dividimos por el prefijo de las URLs de los servidores
-    const sections = html.split(/href="\/discord\/servers\/(\d+)"/);
-
-    for (let i = 1; i < sections.length && servers.length < this.botLimit; i += 2) {
-      const serverId = sections[i];
-      const htmlContent = sections[i + 1].substring(0, 3000); // Rango de busqueda razonable
-
-      // Si ya agregamos este servidor, saltar (top.gg suele repetir links)
-      if (servers.find(s => s.id === serverId)) continue;
-
-      // Buscar <img alt="Nombre Servidor" ... src="Url Imagen">
-      const imgMatch = htmlContent.match(/<img[^>]*alt="([^"]+)"[^>]*src="([^"]+)"/i);
-      
-      // La imagen a veces tiene class antes que src, o viceversa, pero lo anterior cubre la mayoría
-      // Alternativa más segura:
-      const rawImgMatch = htmlContent.match(/<img[^+]+>/i);
-      let name = 'Discord Server';
-      let imageStr = '';
-      
-      if (rawImgMatch) {
-         const altM = rawImgMatch[0].match(/alt="([^"]+)"/i);
-         if (altM) name = altM[1].replace(/&amp;/g, '&');
-         
-         const srcM = rawImgMatch[0].match(/src="([^"]+)"/i);
-         if (srcM) imageStr = srcM[1];
-      }
-
-      // Buscar los votos, usando Vote (XX)
-      const voteMatch = htmlContent.match(/Vote \(([\d.]+[KM]?)\)/i);
-      const votes = voteMatch ? voteMatch[1] : '0';
-
-      if (serverId && imageStr && !imageStr.includes('lazyload')) {
-        servers.push({
-          id: serverId,
-          name: name,
-          votes: votes,
-          description: name, // En top.gg servidores el alt de la imagen tiene el nombre+descripción corta
-          image: this.wrapProxy(imageStr),
-          url: `https://top.gg/discord/servers/${serverId}`
-        });
-      }
+    // En serie (no en paralelo) para no disparar el límite de peticiones de Discord.
+    for (const code of this.CANDIDATE_INVITES) {
+      const server = await this.fetchInvite(code);
+      if (server) servers.push(server);
     }
 
     if (servers.length === 0) {
-      return this.getFallbackBots();
+      // Sin datos nuevos: devolvemos lo último que funcionó (aunque esté caducado).
+      return this.cache?.data ?? [];
     }
 
+    this.cache = { data: servers, time: Date.now() };
     return servers;
+  }
+
+  private async fetchInvite(code: string): Promise<DiscordServerItem | null> {
+    try {
+      const res = await fetch(`https://discord.com/api/v10/invites/${code}?with_counts=true`, {
+        signal: AbortSignal.timeout(8000),
+      });
+      if (!res.ok) {
+        // 404 = invitación caducada; 429 = demasiadas peticiones.
+        this.logger.warn(`Discord invite "${code}" respondió ${res.status}`);
+        return null;
+      }
+
+      const json = await res.json();
+      const guild = json.guild;
+      if (!guild?.id) return null;
+
+      const members: number = json.approximate_member_count ?? 0;
+      const online: number = json.approximate_presence_count ?? 0;
+      const icon = guild.icon
+        ? `https://cdn.discordapp.com/icons/${guild.id}/${guild.icon}.png?size=256`
+        : 'https://cdn.discordapp.com/embed/avatars/0.png';
+
+      return {
+        id: guild.id,
+        name: guild.name,
+        votes: this.formatCount(members),
+        members,
+        online,
+        description: `${this.formatCount(members)} miembros · ${this.formatCount(online)} en línea`,
+        image: this.wrapProxy(icon),
+        url: `https://discord.gg/${code}`,
+      };
+    } catch (e) {
+      this.logger.warn(`Error consultando la invitación "${code}": ${(e as Error).message}`);
+      return null;
+    }
+  }
+
+  /** 4308826 → "4.3M", 409349 → "409K". */
+  private formatCount(n: number): string {
+    if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(1)}M`;
+    if (n >= 1_000) return `${Math.round(n / 1_000)}K`;
+    return String(n);
   }
 
   private wrapProxy(url: string): string {
     const baseUrl = this.configService.get<string>('BASE_URL') || 'http://localhost:3000';
     return `${baseUrl}/games/proxy?url=${encodeURIComponent(url)}`;
-  }
-
-  private getFallbackBots() {
-    return [
-      {
-        id: '543765059424428035',
-        name: 'VALORANT',
-        votes: '7K',
-        description: 'The official VALORANT Discord server',
-        image: this.wrapProxy('https://cdn.top.gg/icons/543765059424428035/95633b49ee9bdf4ecae7df8df08cdfa4.webp?size=128'),
-        url: 'https://top.gg/discord/servers/543765059424428035'
-      },
-      {
-        id: '542884599173636104',
-        name: 'Roblox',
-        votes: '23K',
-        description: 'The largest community-run Roblox Discord',
-        image: this.wrapProxy('https://cdn.top.gg/icons/542884599173636104/a_fe23a6c2bb20d75cda6d9cedda7da729.webp?size=128'),
-        url: 'https://top.gg/discord/servers/542884599173636104'
-      },
-      {
-        id: '703564803452985344',
-        name: 'Socialize',
-        votes: '8K',
-        description: 'The most active VC server!',
-        image: this.wrapProxy('https://cdn.top.gg/icons/703564803452985344/a_6a6206d95392fe19fae21f1d11b33ed5.webp?size=128'),
-        url: 'https://top.gg/discord/servers/703564803452985344'
-      },
-      {
-        id: '542882462976860160',
-        name: 'Study Together',
-        votes: '5K',
-        description: 'Find your study flow on the largest global student community',
-        image: this.wrapProxy('https://cdn.top.gg/icons/542882462976860160/a_65a7ba3daeb9eaeb7ff05bda6bdfe42a.webp?size=128'),
-        url: 'https://top.gg/discord/servers/542882462976860160'
-      },
-      {
-        id: '542872912039141380',
-        name: 'Dadscord',
-        votes: '3K',
-        description: 'Most Active VC Server For Everyone',
-        image: this.wrapProxy('https://cdn.top.gg/icons/542872912039141380/a_76e5dd2c505bedae3369a19c9629b35e.webp?size=128'),
-        url: 'https://top.gg/discord/servers/542872912039141380'
-      },
-    ];
   }
 }
