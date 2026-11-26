@@ -63,3 +63,10 @@ export interface MiiverseComment {
   yeahs: number;                // calculado al leer
   yeahed: boolean;              // si el usuario que pregunta ya dio Yeah
 }
+
+/** Comentario visto desde la moderación: incluye datos del post. */
+export interface MiiverseAdminComment extends MiiverseComment {
+  post_text: string | null;
+  post_username: string;
+  post_game_title: string | null;
+}

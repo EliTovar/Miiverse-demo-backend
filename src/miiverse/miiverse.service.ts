@@ -10,6 +10,7 @@ import { DatabaseService } from '../database/database.service';
 import { CreatePostDto } from './dto/create-post.dto';
 import { CreateCommentDto, UpdateCommentDto } from './dto/create-comment.dto';
 import {
+  MiiverseAdminComment,
   MiiverseComment,
   MiiverseCommunity,
   MiiverseCommunityDetail,
@@ -598,11 +599,36 @@ export class MiiverseService implements OnModuleInit {
     return this.getComment(id, userId);
   }
 
-  /** Borrar un comentario. Solo el autor. Sus Yeahs se borran en cascada. */
-  async deleteComment(id: number, userId: number): Promise<{ id: number; post_id: number }> {
-    const comment = await this.getOwnComment(id, userId);
+  /**
+   * Borrar un comentario: puede su autor o un administrador (moderación).
+   * Sus Yeahs se borran en cascada.
+   */
+  async deleteComment(id: number, userId: number, isAdmin: boolean): Promise<{ id: number; post_id: number }> {
+    const comment = isAdmin ? await this.getComment(id, userId) : await this.getOwnComment(id, userId);
     await this.db.query(`DELETE FROM miiverse_comments WHERE id = $1`, [id]);
     return { id, post_id: comment.post_id };
+  }
+
+  /**
+   * Moderación (solo admin): comentarios de todos los posts, del más nuevo al
+   * más viejo, con el post al que pertenecen. `q` busca en el texto o el autor.
+   */
+  async getCommentsForModeration(search: string | undefined, query: PageQuery): Promise<MiiverseAdminComment[]> {
+    const term = search?.trim();
+    return this.db.query<MiiverseAdminComment>(
+      `SELECT ${commentColumns('NULL::int')},
+              p.content_text AS post_text,
+              p.username     AS post_username,
+              p.game_title   AS post_game_title
+         FROM miiverse_comments c
+         JOIN miiverse_posts p ON p.id = c.post_id
+        WHERE $1::text IS NULL
+           OR c.content_text ILIKE '%' || $1 || '%'
+           OR c.username ILIKE '%' || $1 || '%'
+        ORDER BY c.created_at DESC, c.id DESC
+        LIMIT $2 OFFSET $3`,
+      [term ? term : null, query.limit, (query.page - 1) * query.limit],
+    );
   }
 
   /**

@@ -16,6 +16,8 @@ import { CreatePostDto } from './dto/create-post.dto';
 import { CreateCommentDto, UpdateCommentDto } from './dto/create-comment.dto';
 import { CurrentUser } from '../auth/decorator/current.decorator';
 import { AuthRequiredGuard } from '../auth/guards/auth-required.guard';
+import { Roles } from '../auth/decorator/roles.decorator';
+import { Role } from '../auth/constants/roles.enum';
 import type { AuthUser } from '../auth/interfaces/auth.user.interface';
 import { Logger, UnauthorizedException } from '@nestjs/common';
 
@@ -142,14 +144,30 @@ export class MiiverseController {
     return this.miiverseService.updateComment(id, dto, user.id);
   }
 
-  /** Borrar un comentario – solo su autor (403 si no lo es). */
+  /** Borrar un comentario – su autor o un administrador (403 si no). */
   @Delete('comments/:id')
   @UseGuards(AuthRequiredGuard)
   deleteComment(
     @Param('id', ParseIntPipe) id: number,
     @CurrentUser() user: AuthUser,
   ) {
-    return this.miiverseService.deleteComment(id, user.id);
+    return this.miiverseService.deleteComment(id, user.id, user.role === Role.ADMIN);
+  }
+
+  /**
+   * Moderación: todos los comentarios, del más nuevo al más viejo.
+   * Solo admin: AuthRequiredGuard exige sesión (401) y @Roles lo comprueba el
+   * RolesGuard global (403 si el rol del token no es admin).
+   */
+  @Get('admin/comments')
+  @UseGuards(AuthRequiredGuard)
+  @Roles(Role.ADMIN)
+  getCommentsForModeration(
+    @Query('q') q?: string,
+    @Query('page') page?: string,
+    @Query('limit') limit?: string,
+  ) {
+    return this.miiverseService.getCommentsForModeration(q, toPageQuery(page, limit));
   }
 
   /** Dar o quitar Yeah a un comentario – requiere sesión. */
