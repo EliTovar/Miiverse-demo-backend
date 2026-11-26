@@ -14,9 +14,7 @@ describe('AppController', () => {
     appController = app.get<AppController>(AppController);
   });
 
-  describe('root', () => {
-    it('should return "Hello World!"', () => {
-      expect(appController.getHello()).toBe('Hello World!');
-    });
+  it('GET / responde "OK" (comprobación de que el servidor está vivo)', () => {
+    expect(appController.test()).toBe('OK');
   });
 });
