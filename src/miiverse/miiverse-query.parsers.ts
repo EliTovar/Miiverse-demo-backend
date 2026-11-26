@@ -24,7 +24,9 @@ export function toTimeZone(tz?: string): string {
  * Valida los filtros de moderación de la URL. Responde 400 si alguno tiene un
  * formato incorrecto, en vez de ignorarlo en silencio.
  */
-export function toModerationFilters(q: Record<string, string | undefined>): ModerationFilters {
+export function toModerationFilters(
+  q: Record<string, string | undefined>,
+): ModerationFilters {
   const clean = (v?: string) => (v && v.trim() ? v.trim() : undefined);
 
   const kind = q.type ?? 'all';
@@ -35,7 +37,10 @@ export function toModerationFilters(q: Record<string, string | undefined>): Mode
   const timeZone = toTimeZone(q.tz);
 
   const date = clean(q.date);
-  if (date && (!/^\d{4}-\d{2}-\d{2}$/.test(date) || Number.isNaN(Date.parse(date)))) {
+  if (
+    date &&
+    (!/^\d{4}-\d{2}-\d{2}$/.test(date) || Number.isNaN(Date.parse(date)))
+  ) {
     throw new BadRequestException('date debe tener el formato AAAA-MM-DD');
   }
   const month = clean(q.month);
@@ -71,9 +76,15 @@ export function avatarFor(username: string): string {
  * Convierte los parámetros de la URL en una paginación segura: página >= 1,
  * límite entre 1 y 50 y un orden de la lista permitida (si no, 'recent').
  */
-export function toPageQuery(page?: string, limit?: string, sort?: string): PageQuery {
+export function toPageQuery(
+  page?: string,
+  limit?: string,
+  sort?: string,
+): PageQuery {
   const pageNum = Math.max(1, Math.floor(Number(page)) || 1);
   const limitNum = Math.min(50, Math.max(1, Math.floor(Number(limit)) || 20));
-  const sortValue = SORTS.includes(sort as PostSort) ? (sort as PostSort) : 'recent';
+  const sortValue = SORTS.includes(sort as PostSort)
+    ? (sort as PostSort)
+    : 'recent';
   return { page: pageNum, limit: limitNum, sort: sortValue };
 }

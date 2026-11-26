@@ -1,5 +1,10 @@
 import { BadRequestException } from '@nestjs/common';
-import { avatarFor, toModerationFilters, toPageQuery, toTimeZone } from './miiverse-query.parsers';
+import {
+  avatarFor,
+  toModerationFilters,
+  toPageQuery,
+  toTimeZone,
+} from './miiverse-query.parsers';
 
 describe('toPageQuery', () => {
   it('usa página 1, límite 20 y orden recent por defecto', () => {
@@ -7,13 +12,29 @@ describe('toPageQuery', () => {
   });
 
   it('acota el límite entre 1 y 50 y la página a >= 1', () => {
-    expect(toPageQuery('0', '500')).toEqual({ page: 1, limit: 50, sort: 'recent' });
-    expect(toPageQuery('-3', '-1')).toEqual({ page: 1, limit: 1, sort: 'recent' });
-    expect(toPageQuery('2.7', '10.9', 'popular')).toEqual({ page: 2, limit: 10, sort: 'popular' });
+    expect(toPageQuery('0', '500')).toEqual({
+      page: 1,
+      limit: 50,
+      sort: 'recent',
+    });
+    expect(toPageQuery('-3', '-1')).toEqual({
+      page: 1,
+      limit: 1,
+      sort: 'recent',
+    });
+    expect(toPageQuery('2.7', '10.9', 'popular')).toEqual({
+      page: 2,
+      limit: 10,
+      sort: 'popular',
+    });
   });
 
   it('ignora valores no numéricos y órdenes desconocidos', () => {
-    expect(toPageQuery('abc', 'xyz', 'DROP TABLE')).toEqual({ page: 1, limit: 20, sort: 'recent' });
+    expect(toPageQuery('abc', 'xyz', 'DROP TABLE')).toEqual({
+      page: 1,
+      limit: 20,
+      sort: 'recent',
+    });
   });
 });
 
@@ -34,7 +55,9 @@ describe('toTimeZone', () => {
 
 describe('toModerationFilters', () => {
   it('limpia espacios y deja vacíos como undefined', () => {
-    expect(toModerationFilters({ q: '  hola ', user: '', community: ' Zelda ' })).toEqual({
+    expect(
+      toModerationFilters({ q: '  hola ', user: '', community: ' Zelda ' }),
+    ).toEqual({
       kind: 'all',
       text: 'hola',
       username: undefined,
@@ -47,8 +70,18 @@ describe('toModerationFilters', () => {
   });
 
   it('acepta fecha, mes y hora válidos', () => {
-    const f = toModerationFilters({ type: 'comment', date: '2026-11-25', month: '2026-11', hour: '0' });
-    expect(f).toMatchObject({ kind: 'comment', date: '2026-11-25', month: '2026-11', hour: 0 });
+    const f = toModerationFilters({
+      type: 'comment',
+      date: '2026-11-25',
+      month: '2026-11',
+      hour: '0',
+    });
+    expect(f).toMatchObject({
+      kind: 'comment',
+      date: '2026-11-25',
+      month: '2026-11',
+      hour: 0,
+    });
   });
 
   it.each([
