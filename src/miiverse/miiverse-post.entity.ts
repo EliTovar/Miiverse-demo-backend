@@ -59,4 +59,7 @@ export interface MiiverseComment {
   content_text: string;
   is_spoiler: boolean;
   created_at: Date;
+  updated_at: Date | null;      // null si nunca se editó
+  yeahs: number;                // calculado al leer
+  yeahed: boolean;              // si el usuario que pregunta ya dio Yeah
 }

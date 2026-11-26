@@ -1,9 +1,11 @@
 import {
   Body,
   Controller,
+  Delete,
   Get,
   Param,
   ParseIntPipe,
+  Patch,
   Post,
   Query,
   UseGuards,
@@ -11,7 +13,7 @@ import {
 import { MiiverseService, PageQuery } from './miiverse.service';
 import { PostSort } from './miiverse-post.entity';
 import { CreatePostDto } from './dto/create-post.dto';
-import { CreateCommentDto } from './dto/create-comment.dto';
+import { CreateCommentDto, UpdateCommentDto } from './dto/create-comment.dto';
 import { CurrentUser } from '../auth/decorator/current.decorator';
 import { AuthRequiredGuard } from '../auth/guards/auth-required.guard';
 import type { AuthUser } from '../auth/interfaces/auth.user.interface';
@@ -106,10 +108,13 @@ export class MiiverseController {
     return this.miiverseService.searchUsers(q);
   }
 
-  /** Comentarios de un post (públicos). */
+  /** Comentarios de un post (públicos). Con sesión, indica a cuáles ya diste Yeah. */
   @Get('posts/:id/comments')
-  getComments(@Param('id', ParseIntPipe) id: number) {
-    return this.miiverseService.getComments(id);
+  getComments(
+    @Param('id', ParseIntPipe) id: number,
+    @CurrentUser() user: AuthUser | null,
+  ) {
+    return this.miiverseService.getComments(id, user?.id ?? null);
   }
 
   /** Comentar un post – requiere estar autenticado. */
@@ -124,6 +129,37 @@ export class MiiverseController {
       throw new UnauthorizedException('Debe iniciar sesión para comentar');
     }
     return this.miiverseService.createComment(id, dto, user.id, user.username, avatarFor(user.username));
+  }
+
+  /** Editar un comentario – solo su autor (403 si no lo es). */
+  @Patch('comments/:id')
+  @UseGuards(AuthRequiredGuard)
+  updateComment(
+    @Param('id', ParseIntPipe) id: number,
+    @Body() dto: UpdateCommentDto,
+    @CurrentUser() user: AuthUser,
+  ) {
+    return this.miiverseService.updateComment(id, dto, user.id);
+  }
+
+  /** Borrar un comentario – solo su autor (403 si no lo es). */
+  @Delete('comments/:id')
+  @UseGuards(AuthRequiredGuard)
+  deleteComment(
+    @Param('id', ParseIntPipe) id: number,
+    @CurrentUser() user: AuthUser,
+  ) {
+    return this.miiverseService.deleteComment(id, user.id);
+  }
+
+  /** Dar o quitar Yeah a un comentario – requiere sesión. */
+  @Post('comments/:id/yeah')
+  @UseGuards(AuthRequiredGuard)
+  toggleCommentYeah(
+    @Param('id', ParseIntPipe) id: number,
+    @CurrentUser() user: AuthUser,
+  ) {
+    return this.miiverseService.toggleCommentYeah(id, user.id);
   }
 
   /** Perfil público de un usuario + una página de sus posts. */
