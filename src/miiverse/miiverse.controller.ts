@@ -23,6 +23,17 @@ import { BadRequestException, Logger, UnauthorizedException } from '@nestjs/comm
 
 const SORTS: PostSort[] = ['recent', 'oldest', 'popular'];
 
+/** Zona horaria IANA de la URL (por defecto UTC). 400 si no existe. */
+function toTimeZone(tz?: string): string {
+  const timeZone = tz?.trim() || 'UTC';
+  try {
+    new Intl.DateTimeFormat('en', { timeZone }); // lanza RangeError si la zona no existe
+  } catch {
+    throw new BadRequestException('Zona horaria no válida');
+  }
+  return timeZone;
+}
+
 /**
  * Valida los filtros de moderación de la URL. Responde 400 si alguno tiene un
  * formato incorrecto, en vez de ignorarlo en silencio.
@@ -35,12 +46,7 @@ function toModerationFilters(q: Record<string, string | undefined>): ModerationF
     throw new BadRequestException('type debe ser all, post o comment');
   }
 
-  const timeZone = q.tz ?? 'UTC';
-  try {
-    new Intl.DateTimeFormat('en', { timeZone }); // lanza RangeError si la zona no existe
-  } catch {
-    throw new BadRequestException('Zona horaria no válida');
-  }
+  const timeZone = toTimeZone(q.tz);
 
   const date = clean(q.date);
   if (date && (!/^\d{4}-\d{2}-\d{2}$/.test(date) || Number.isNaN(Date.parse(date)))) {
@@ -155,6 +161,19 @@ export class MiiverseController {
   @Get('users')
   searchUsers(@Query('q') q?: string) {
     return this.miiverseService.searchUsers(q);
+  }
+
+  /**
+   * Top Players: los 5 usuarios con más Yeahs recibidos en la semana (lunes a
+   * domingo en la zona `tz`). `weeksAgo` = 0 semana actual, 1 la anterior…
+   */
+  @Get('top-players')
+  getTopPlayers(@Query('weeksAgo') weeksAgo?: string, @Query('tz') tz?: string) {
+    const weeks = weeksAgo === undefined || weeksAgo === '' ? 0 : Number(weeksAgo);
+    if (!Number.isInteger(weeks) || weeks < 0 || weeks > 520) {
+      throw new BadRequestException('weeksAgo debe ser un número entero de 0 a 520');
+    }
+    return this.miiverseService.getTopPlayers(weeks, toTimeZone(tz));
   }
 
   /** Comentarios de un post (públicos). Con sesión, indica a cuáles ya diste Yeah. */

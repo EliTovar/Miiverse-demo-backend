@@ -11,6 +11,8 @@ import { CreatePostDto } from './dto/create-post.dto';
 import { CreateCommentDto, UpdateCommentDto } from './dto/create-comment.dto';
 import {
   MiiverseModerationItem,
+  MiiverseTopPlayer,
+  MiiverseTopPlayers,
   MiiverseComment,
   MiiverseCommunity,
   MiiverseCommunityDetail,
@@ -50,6 +52,13 @@ const POST_COMMUNITY_KEY = communityKey('game_title');
 const POST_COLUMNS = `p.*,
   (SELECT COUNT(*)::int FROM miiverse_comments c WHERE c.post_id = p.id) AS comments_count`;
 
+/** Largo máximo del texto de un post (el compositor del frontend usa el mismo). */
+const MAX_POST_LENGTH = 500;
+/** Largo máximo del nombre de comunidad (columna VARCHAR(200)). */
+const MAX_GAME_TITLE_LENGTH = 200;
+/** Las imágenes de un post son siempre data URL PNG/JPEG generadas en el navegador. */
+const IMAGE_DATA_URL = /^data:image\/(png|jpeg);base64,[A-Za-z0-9+/=]+$/;
+
 /** Largo máximo de un comentario (igual que el texto de un post). */
 const MAX_COMMENT_LENGTH = 500;
 
@@ -64,6 +73,36 @@ function commentColumns(viewerParam: string): string {
     (SELECT COUNT(*)::int FROM miiverse_comment_yeahs y WHERE y.comment_id = c.id) AS yeahs,
     EXISTS (SELECT 1 FROM miiverse_comment_yeahs y
              WHERE y.comment_id = c.id AND y.user_id = ${viewerParam}) AS yeahed`;
+}
+
+/**
+ * Valida y limpia lo que llega al publicar. Antes solo lo comprobaba el
+ * frontend, así que una petición hecha a mano podía saltarse los límites.
+ */
+function cleanPostInput(dto: CreatePostDto | undefined) {
+  const optionalText = (value: unknown, field: string, max: number): string | null => {
+    if (value === undefined || value === null) return null;
+    if (typeof value !== 'string') throw new BadRequestException(`${field} debe ser texto`);
+    const text = value.trim();
+    if (text.length > max) throw new BadRequestException(`${field} no puede pasar de ${max} caracteres`);
+    return text || null;
+  };
+  const optionalImage = (value: unknown, field: string): string | null => {
+    if (value === undefined || value === null || value === '') return null;
+    if (typeof value !== 'string' || !IMAGE_DATA_URL.test(value)) {
+      throw new BadRequestException(`${field} debe ser una imagen PNG o JPEG generada en la app`);
+    }
+    return value;
+  };
+
+  const content_text = optionalText(dto?.content_text, 'El texto', MAX_POST_LENGTH);
+  const drawing_url = optionalImage(dto?.drawing_url, 'El dibujo');
+  const screenshot_url = optionalImage(dto?.screenshot_url, 'La captura');
+  const game_title = optionalText(dto?.game_title, 'La comunidad', MAX_GAME_TITLE_LENGTH);
+  if (!content_text && !drawing_url && !screenshot_url) {
+    throw new BadRequestException('La publicación necesita texto o un dibujo');
+  }
+  return { content_text, drawing_url, screenshot_url, game_title, is_spoiler: dto?.is_spoiler === true };
 }
 
 /** Valida y limpia el texto de un comentario (crear y editar). */
@@ -98,13 +137,20 @@ export interface PageQuery {
 
 // ─── Seed data ────────────────────────────────────────────────────────────────
 // Datos de inicio inspirados en publicaciones reales de Miiverse.
-// Las imágenes drawimgs son del repositorio público de Archiverse/Miiverse.
-const SEED_POSTS = [
+// Sin imágenes: las URLs de Imgur que tenían ya no existen (se quitaron el 2026-11-26).
+const SEED_POSTS: {
+  username: string;
+  mii_avatar_url: string;
+  content_text: string;
+  drawing_url: string | null;
+  screenshot_url: string | null;
+  game_title: string;
+}[] = [
   {
     username: 'ZeldaMaster99',
     mii_avatar_url: 'https://ui-avatars.com/api/?name=ZM&background=2ecc71&color=fff&bold=true&size=64',
     content_text: '¡Por fin terminé Breath of the Wild! La batalla final me costó mucho pero lo logré 💪',
-    drawing_url: 'https://i.imgur.com/7bMqysS.png',
+    drawing_url: null,
     screenshot_url: null,
     game_title: 'The Legend of Zelda: Breath of the Wild',
   },
@@ -112,7 +158,7 @@ const SEED_POSTS = [
     username: 'SplatoonKing',
     mii_avatar_url: 'https://ui-avatars.com/api/?name=SK&background=e74c3c&color=fff&bold=true&size=64',
     content_text: 'Acabo de llegar al rango S+ en Turf War 🦑🎨 ¡Nadie pare los tentáculos!',
-    drawing_url: 'https://i.imgur.com/wkabCDQ.png',
+    drawing_url: null,
     screenshot_url: null,
     game_title: 'Splatoon 3',
   },
@@ -121,14 +167,14 @@ const SEED_POSTS = [
     mii_avatar_url: 'https://ui-avatars.com/api/?name=MM&background=e67e22&color=fff&bold=true&size=64',
     content_text: 'Mi nuevo nivel en Super Mario Maker 2 ya está disponible. ¡A ver quién puede terminarlo sin morir!',
     drawing_url: null,
-    screenshot_url: 'https://i.imgur.com/xHjVsLQ.png',
+    screenshot_url: null,
     game_title: 'Super Mario Maker 2',
   },
   {
     username: 'PikminAdventurer',
     mii_avatar_url: 'https://ui-avatars.com/api/?name=PA&background=27ae60&color=fff&bold=true&size=64',
     content_text: 'Dibujé a mi Pikmin favorito 🌿 El Pikmin roca es demasiado adorable',
-    drawing_url: 'https://i.imgur.com/bGJCFiF.png',
+    drawing_url: null,
     screenshot_url: null,
     game_title: 'Pikmin 4',
   },
@@ -136,7 +182,7 @@ const SEED_POSTS = [
     username: 'AnimalCrossingIsla',
     mii_avatar_url: 'https://ui-avatars.com/api/?name=AC&background=f39c12&color=fff&bold=true&size=64',
     content_text: 'Mi isla ya tiene 5 estrellas con Isabelle 🌟 Tantas horas de trabajo valieron la pena',
-    drawing_url: 'https://i.imgur.com/nkXwf1r.png',
+    drawing_url: null,
     screenshot_url: null,
     game_title: 'Animal Crossing: New Horizons',
   },
@@ -144,7 +190,7 @@ const SEED_POSTS = [
     username: 'KirbyArtist',
     mii_avatar_url: 'https://ui-avatars.com/api/?name=KA&background=ff69b4&color=fff&bold=true&size=64',
     content_text: '¡Kirby con habilidad de copiar espada es simplemente el más poderoso! 🌟',
-    drawing_url: 'https://i.imgur.com/pWyX3LH.png',
+    drawing_url: null,
     screenshot_url: null,
     game_title: 'Kirby and the Forgotten Land',
   },
@@ -153,14 +199,14 @@ const SEED_POSTS = [
     mii_avatar_url: 'https://ui-avatars.com/api/?name=SB&background=9b59b6&color=fff&bold=true&size=64',
     content_text: 'Llevo 300 horas en Smash Ultimate y aún sigo mejorando con Link 🗡️ ¡El juego nunca envejece!',
     drawing_url: null,
-    screenshot_url: 'https://i.imgur.com/d8Gb5rK.png',
+    screenshot_url: null,
     game_title: 'Super Smash Bros. Ultimate',
   },
   {
     username: 'MetroidHunter',
     mii_avatar_url: 'https://ui-avatars.com/api/?name=MH&background=e74c3c&color=fff&bold=true&size=64',
     content_text: 'Samus en Metroid Dread es BRUTAL. La sensación al esquivar a los EMMI no tiene precio 💀',
-    drawing_url: 'https://i.imgur.com/5BjGFHI.png',
+    drawing_url: null,
     screenshot_url: null,
     game_title: 'Metroid Dread',
   },
@@ -168,7 +214,7 @@ const SEED_POSTS = [
     username: 'FoxMcCloud64',
     mii_avatar_url: 'https://ui-avatars.com/api/?name=FC&background=1a252f&color=fff&bold=true&size=64',
     content_text: 'DO A BARREL ROLL! Star Fox 64 sigue sin envejecer 🚀🦊',
-    drawing_url: 'https://i.imgur.com/OjY5kWj.png',
+    drawing_url: null,
     screenshot_url: null,
     game_title: 'Star Fox 64',
   },
@@ -176,7 +222,7 @@ const SEED_POSTS = [
     username: 'PokemonTrainer',
     mii_avatar_url: 'https://ui-avatars.com/api/?name=PT&background=e74c3c&color=fff&bold=true&size=64',
     content_text: 'Finalmente entrené mi primer equipo competitivo 6vs6. Lleva semanas pero valió la pena 🏆',
-    drawing_url: 'https://i.imgur.com/yTzKw4D.png',
+    drawing_url: null,
     screenshot_url: null,
     game_title: 'Pokémon Escarlata y Púrpura',
   },
@@ -184,7 +230,7 @@ const SEED_POSTS = [
     username: 'NintendoFan_MX',
     mii_avatar_url: 'https://ui-avatars.com/api/?name=NF&background=c0392b&color=fff&bold=true&size=64',
     content_text: 'Pintando al estilo Miiverse es lo más relajante que existe 😌🎨',
-    drawing_url: 'https://i.imgur.com/3gTUiYc.png',
+    drawing_url: null,
     screenshot_url: null,
     game_title: 'Wii U & Switch Community Art',
   },
@@ -192,7 +238,7 @@ const SEED_POSTS = [
     username: 'WaluigiTime',
     mii_avatar_url: 'https://ui-avatars.com/api/?name=WT&background=8e44ad&color=fff&bold=true&size=64',
     content_text: 'WALUIGI NUMBER ONE!!! 🎾 El mundo me debe un juego propio',
-    drawing_url: 'https://i.imgur.com/u4Qze3T.png',
+    drawing_url: null,
     screenshot_url: null,
     game_title: 'Mario Tennis Aces',
   },
@@ -201,14 +247,14 @@ const SEED_POSTS = [
     mii_avatar_url: 'https://ui-avatars.com/api/?name=BE&background=3498db&color=fff&bold=true&size=64',
     content_text: 'Mapa del Santuario más difícil de encontrar completado ✅ ¡El mundo abierto de Zelda es infinito!',
     drawing_url: null,
-    screenshot_url: 'https://i.imgur.com/F7fYd4C.png',
+    screenshot_url: null,
     game_title: 'The Legend of Zelda: Tears of the Kingdom',
   },
   {
     username: 'DonkeyKongFan',
     mii_avatar_url: 'https://ui-avatars.com/api/?name=DK&background=8B4513&color=fff&bold=true&size=64',
     content_text: 'Tropical Freeze sigue siendo el juego de plataformas más difícil que he jugado. Enorme DK 🍌',
-    drawing_url: 'https://i.imgur.com/8JkQxBY.png',
+    drawing_url: null,
     screenshot_url: null,
     game_title: 'Donkey Kong Country: Tropical Freeze',
   },
@@ -216,7 +262,7 @@ const SEED_POSTS = [
     username: 'YoshiArtist',
     mii_avatar_url: 'https://ui-avatars.com/api/?name=YA&background=2ecc71&color=fff&bold=true&size=64',
     content_text: '¡Mi dibujo de Yoshi de hoy! Practicando el estilo crayón que tiene el juego 🦎💚',
-    drawing_url: 'https://i.imgur.com/MmKAbQR.png',
+    drawing_url: null,
     screenshot_url: null,
     game_title: "Yoshi's Crafted World",
   },
@@ -225,14 +271,14 @@ const SEED_POSTS = [
     mii_avatar_url: 'https://ui-avatars.com/api/?name=BD&background=2c3e50&color=fff&bold=true&size=64',
     content_text: 'La cámara lenta en los ataques de Bayonetta es una obra de arte en sí misma 🔫💫',
     drawing_url: null,
-    screenshot_url: 'https://i.imgur.com/RFcl9jJ.png',
+    screenshot_url: null,
     game_title: 'Bayonetta 3',
   },
   {
     username: 'XenobladeChronicles',
     mii_avatar_url: 'https://ui-avatars.com/api/?name=XC&background=e91e63&color=fff&bold=true&size=64',
     content_text: '300 horas de juego y el mundo de Xenoblade Chronicles 3 todavía me sorprende ✨',
-    drawing_url: 'https://i.imgur.com/F5Xm8hY.png',
+    drawing_url: null,
     screenshot_url: null,
     game_title: 'Xenoblade Chronicles 3',
   },
@@ -240,7 +286,7 @@ const SEED_POSTS = [
     username: 'MarineFishFan',
     mii_avatar_url: 'https://ui-avatars.com/api/?name=MF&background=1abc9c&color=fff&bold=true&size=64',
     content_text: 'Dibujé al equipo de Splatoon con estilo anime ¡Las tintas del juego me inspiran demasiado! 🦑',
-    drawing_url: 'https://i.imgur.com/Xj9Wfb3.png',
+    drawing_url: null,
     screenshot_url: null,
     game_title: 'Splatoon 3',
   },
@@ -249,14 +295,14 @@ const SEED_POSTS = [
     mii_avatar_url: 'https://ui-avatars.com/api/?name=FE&background=c0392b&color=fff&bold=true&size=64',
     content_text: 'El sistema de clases en Fire Emblem Engage es adictivo. Mis personajes favoritos acaban de evol. ⚔️',
     drawing_url: null,
-    screenshot_url: 'https://i.imgur.com/9nPKv6R.png',
+    screenshot_url: null,
     game_title: 'Fire Emblem Engage',
   },
   {
     username: 'MarioOdysseyRun',
     mii_avatar_url: 'https://ui-avatars.com/api/?name=MO&background=e74c3c&color=fff&bold=true&size=64',
     content_text: '999 lunas recolectadas en Super Mario Odyssey 🌙 Gracias a Cappy por todo 🎩',
-    drawing_url: 'https://i.imgur.com/tXmPvHB.png',
+    drawing_url: null,
     screenshot_url: null,
     game_title: 'Super Mario Odyssey',
   },
@@ -297,6 +343,24 @@ export class MiiverseService implements OnModuleInit {
         user_id  INTEGER REFERENCES users(id) ON DELETE CASCADE,
         PRIMARY KEY (post_id, user_id)
       );
+    `);
+
+    // Top Players semanal: cada Yeah guarda cuándo se dio. A los Yeahs que ya
+    // existían se les pone la fecha de esta migración (no se sabe la real).
+    await this.db.query(`
+      ALTER TABLE miiverse_yeahs
+        ADD COLUMN IF NOT EXISTS created_at TIMESTAMPTZ NOT NULL DEFAULT NOW();
+      CREATE INDEX IF NOT EXISTS idx_miiverse_yeahs_created ON miiverse_yeahs (created_at);
+    `);
+
+    // Los posts de ejemplo apuntaban a imágenes de Imgur que ya no existen.
+    // Solo toca posts de ejemplo (is_seed) con URLs de Imgur; es idempotente.
+    await this.db.query(`
+      UPDATE miiverse_posts
+         SET drawing_url = CASE WHEN drawing_url LIKE 'https://i.imgur.com/%' THEN NULL ELSE drawing_url END,
+             screenshot_url = CASE WHEN screenshot_url LIKE 'https://i.imgur.com/%' THEN NULL ELSE screenshot_url END
+       WHERE is_seed = TRUE
+         AND (drawing_url LIKE 'https://i.imgur.com/%' OR screenshot_url LIKE 'https://i.imgur.com/%');
     `);
 
     // Fase 3: spoilers y comentarios. Solo añade; no toca datos existentes.
@@ -388,6 +452,7 @@ export class MiiverseService implements OnModuleInit {
     username: string,
     avatarUrl: string,
   ): Promise<MiiversePost> {
+    const post = cleanPostInput(dto);
     const result = await this.db.query<MiiversePost>(
       `INSERT INTO miiverse_posts
          (user_id, username, mii_avatar_url, content_text, drawing_url, screenshot_url, game_title, is_spoiler, is_seed)
@@ -397,11 +462,11 @@ export class MiiverseService implements OnModuleInit {
         userId,
         username,
         avatarUrl,
-        dto.content_text ?? null,
-        dto.drawing_url ?? null,
-        dto.screenshot_url ?? null,
-        dto.game_title ?? null,
-        dto.is_spoiler === true,
+        post.content_text,
+        post.drawing_url,
+        post.screenshot_url,
+        post.game_title,
+        post.is_spoiler,
       ],
     );
     return result[0];
@@ -409,6 +474,8 @@ export class MiiverseService implements OnModuleInit {
 
   // ─── Yeah (Me gusta) ───────────────────────────────────────────────────────
   async toggleYeah(postId: number, userId: number): Promise<{ yeahs: number }> {
+    await this.getPost(postId); // 404 si el post no existe (antes: error 500 de la BD)
+
     // Revisar si ya dio yeah
     const existing = await this.db.query(
       `SELECT 1 FROM miiverse_yeahs WHERE post_id=$1 AND user_id=$2`,
@@ -539,6 +606,49 @@ export class MiiverseService implements OnModuleInit {
       [username, query.limit, (query.page - 1) * query.limit],
     );
     return { ...summary, posts };
+  }
+
+  // ─── Top Players semanal ──────────────────────────────────────────────────
+
+  /**
+   * Los 5 usuarios que más Yeahs recibieron en sus publicaciones (dibujos o
+   * texto) durante una semana de lunes a domingo, en la zona horaria `tz`.
+   * `weeksAgo` = 0 es la semana actual, 1 la anterior, etc. Se cuenta cuándo
+   * se dio cada Yeah (miiverse_yeahs.created_at), no cuándo se publicó el post.
+   * Los Yeahs de ejemplo (contador aleatorio de los posts seed) no cuentan.
+   */
+  async getTopPlayers(weeksAgo: number, timeZone: string): Promise<MiiverseTopPlayers> {
+    const players = await this.db.query<MiiverseTopPlayer>(
+      `WITH week AS (
+         SELECT (date_trunc('week', NOW() AT TIME ZONE $1) - ($2::int * INTERVAL '7 days')) AT TIME ZONE $1 AS start
+       ),
+       per_post AS (
+         SELECT p.id, p.username, p.mii_avatar_url, p.drawing_url, p.created_at, COUNT(*)::int AS yeahs
+           FROM miiverse_yeahs y
+           JOIN miiverse_posts p ON p.id = y.post_id
+           CROSS JOIN week w
+          WHERE y.created_at >= w.start AND y.created_at < w.start + INTERVAL '7 days'
+          GROUP BY p.id
+       )
+       SELECT username,
+              SUM(yeahs)::int AS yeahs,
+              COUNT(*)::int AS posts_count,
+              (ARRAY_AGG(mii_avatar_url ORDER BY created_at DESC))[1] AS avatar_url,
+              (ARRAY_AGG(id ORDER BY yeahs DESC, created_at DESC))[1] AS top_post_id,
+              (ARRAY_AGG(drawing_url ORDER BY yeahs DESC, created_at DESC)
+                 FILTER (WHERE drawing_url IS NOT NULL))[1] AS top_drawing_url
+         FROM per_post
+        GROUP BY username
+        ORDER BY yeahs DESC, username ASC
+        LIMIT 5`,
+      [timeZone, weeksAgo],
+    );
+    const [{ start, end }] = await this.db.query<{ start: Date; end: Date }>(
+      `SELECT (date_trunc('week', NOW() AT TIME ZONE $1) - ($2::int * INTERVAL '7 days')) AT TIME ZONE $1 AS start,
+              (date_trunc('week', NOW() AT TIME ZONE $1) - (($2::int - 1) * INTERVAL '7 days')) AT TIME ZONE $1 AS "end"`,
+      [timeZone, weeksAgo],
+    );
+    return { week_start: start, week_end: end, players };
   }
 
   // ─── Comentarios (fase 3) ──────────────────────────────────────────────────

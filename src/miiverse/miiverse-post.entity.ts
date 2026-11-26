@@ -83,3 +83,19 @@ export interface MiiverseModerationItem {
   post_username: string | null;  // solo comentarios: autor del post
   total: number;                 // resultados de toda la búsqueda
 }
+
+/** Un jugador del ranking semanal (Top Players). */
+export interface MiiverseTopPlayer {
+  username: string;
+  yeahs: number;                  // Yeahs recibidos esa semana
+  posts_count: number;            // publicaciones suyas que recibieron Yeahs esa semana
+  avatar_url: string | null;
+  top_post_id: number;            // su publicación con más Yeahs esa semana
+  top_drawing_url: string | null; // su dibujo con más Yeahs esa semana, si tiene
+}
+
+export interface MiiverseTopPlayers {
+  week_start: Date;               // lunes 00:00 en la zona horaria pedida
+  week_end: Date;                 // lunes siguiente 00:00 (no incluido)
+  players: MiiverseTopPlayer[];
+}
