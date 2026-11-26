@@ -11,12 +11,18 @@ import {
 import { MiiverseService, PageQuery } from './miiverse.service';
 import { PostSort } from './miiverse-post.entity';
 import { CreatePostDto } from './dto/create-post.dto';
+import { CreateCommentDto } from './dto/create-comment.dto';
 import { CurrentUser } from '../auth/decorator/current.decorator';
 import { AuthRequiredGuard } from '../auth/guards/auth-required.guard';
 import type { AuthUser } from '../auth/interfaces/auth.user.interface';
 import { Logger, UnauthorizedException } from '@nestjs/common';
 
 const SORTS: PostSort[] = ['recent', 'oldest', 'popular'];
+
+/** Avatar generado a partir del nombre (lo usan posts y comentarios). */
+function avatarFor(username: string): string {
+  return `https://ui-avatars.com/api/?name=${encodeURIComponent(username)}&background=0070f3&color=fff&bold=true&size=64`;
+}
 
 /**
  * Convierte los parámetros de la URL en una paginación segura: página >= 1,
@@ -56,8 +62,7 @@ export class MiiverseController {
       throw new UnauthorizedException('Debe iniciar sesión para publicar');
     }
 
-    const avatarUrl = `https://ui-avatars.com/api/?name=${encodeURIComponent(user.username)}&background=0070f3&color=fff&bold=true&size=64`;
-    return this.miiverseService.createPost(dto, user.id, user.username, avatarUrl);
+    return this.miiverseService.createPost(dto, user.id, user.username, avatarFor(user.username));
   }
 
   /** Toggle Yeah en un post – requiere estar autenticado */
@@ -99,6 +104,26 @@ export class MiiverseController {
   @Get('users')
   searchUsers(@Query('q') q?: string) {
     return this.miiverseService.searchUsers(q);
+  }
+
+  /** Comentarios de un post (públicos). */
+  @Get('posts/:id/comments')
+  getComments(@Param('id', ParseIntPipe) id: number) {
+    return this.miiverseService.getComments(id);
+  }
+
+  /** Comentar un post – requiere estar autenticado. */
+  @Post('posts/:id/comments')
+  @UseGuards(AuthRequiredGuard)
+  createComment(
+    @Param('id', ParseIntPipe) id: number,
+    @Body() dto: CreateCommentDto,
+    @CurrentUser() user: AuthUser,
+  ) {
+    if (!user?.id || !user.username) {
+      throw new UnauthorizedException('Debe iniciar sesión para comentar');
+    }
+    return this.miiverseService.createComment(id, dto, user.id, user.username, avatarFor(user.username));
   }
 
   /** Perfil público de un usuario + una página de sus posts. */

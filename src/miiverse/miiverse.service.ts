@@ -1,7 +1,9 @@
-import { Injectable, Logger, NotFoundException, OnModuleInit } from '@nestjs/common';
+import { BadRequestException, Injectable, Logger, NotFoundException, OnModuleInit } from '@nestjs/common';
 import { DatabaseService } from '../database/database.service';
 import { CreatePostDto } from './dto/create-post.dto';
+import { CreateCommentDto } from './dto/create-comment.dto';
 import {
+  MiiverseComment,
   MiiverseCommunity,
   MiiverseCommunityDetail,
   MiiversePost,
@@ -32,6 +34,16 @@ function communityKey(sqlExpr: string): string {
     '[^a-z0-9]+', ' ', 'g'))`;
 }
 const POST_COMMUNITY_KEY = communityKey('game_title');
+
+/**
+ * Columnas que devuelve cualquier lectura de posts: todas las de la tabla más
+ * el número de comentarios. Exige que la tabla se llame `p` en el FROM.
+ */
+const POST_COLUMNS = `p.*,
+  (SELECT COUNT(*)::int FROM miiverse_comments c WHERE c.post_id = p.id) AS comments_count`;
+
+/** Largo máximo de un comentario (igual que el texto de un post). */
+const MAX_COMMENT_LENGTH = 500;
 
 /** Paginación ya validada que reciben los métodos de lectura. */
 export interface PageQuery {
@@ -243,6 +255,27 @@ export class MiiverseService implements OnModuleInit {
       );
     `);
 
+    // Fase 3: spoilers y comentarios. Solo añade; no toca datos existentes.
+    await this.db.query(`
+      ALTER TABLE miiverse_posts
+        ADD COLUMN IF NOT EXISTS is_spoiler BOOLEAN NOT NULL DEFAULT FALSE;
+    `);
+
+    await this.db.query(`
+      CREATE TABLE IF NOT EXISTS miiverse_comments (
+        id               SERIAL PRIMARY KEY,
+        post_id          INTEGER NOT NULL REFERENCES miiverse_posts(id) ON DELETE CASCADE,
+        user_id          INTEGER REFERENCES users(id) ON DELETE SET NULL,
+        username         VARCHAR(100) NOT NULL,
+        mii_avatar_url   TEXT,
+        content_text     TEXT NOT NULL,
+        is_spoiler       BOOLEAN NOT NULL DEFAULT FALSE,
+        created_at       TIMESTAMPTZ DEFAULT NOW()
+      );
+      CREATE INDEX IF NOT EXISTS idx_miiverse_comments_post
+        ON miiverse_comments (post_id, created_at);
+    `);
+
     this.logger.log('✅ Schema de Miiverse verificado');
   }
 
@@ -287,7 +320,7 @@ export class MiiverseService implements OnModuleInit {
   async getFeed(page = 1, limit = 20): Promise<MiiversePost[]> {
     const offset = (page - 1) * limit;
     return this.db.query<MiiversePost>(
-      `SELECT * FROM miiverse_posts ORDER BY created_at DESC LIMIT $1 OFFSET $2`,
+      `SELECT ${POST_COLUMNS} FROM miiverse_posts p ORDER BY created_at DESC LIMIT $1 OFFSET $2`,
       [limit, offset],
     );
   }
@@ -301,9 +334,9 @@ export class MiiverseService implements OnModuleInit {
   ): Promise<MiiversePost> {
     const result = await this.db.query<MiiversePost>(
       `INSERT INTO miiverse_posts
-         (user_id, username, mii_avatar_url, content_text, drawing_url, screenshot_url, game_title, is_seed)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,FALSE)
-       RETURNING *`,
+         (user_id, username, mii_avatar_url, content_text, drawing_url, screenshot_url, game_title, is_spoiler, is_seed)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,FALSE)
+       RETURNING *, 0 AS comments_count`,
       [
         userId,
         username,
@@ -312,6 +345,7 @@ export class MiiverseService implements OnModuleInit {
         dto.drawing_url ?? null,
         dto.screenshot_url ?? null,
         dto.game_title ?? null,
+        dto.is_spoiler === true,
       ],
     );
     return result[0];
@@ -387,7 +421,7 @@ export class MiiverseService implements OnModuleInit {
     if (!summary || summary.posts_count === 0) throw new NotFoundException('La comunidad no existe');
 
     const posts = await this.db.query<MiiversePost>(
-      `SELECT * FROM miiverse_posts
+      `SELECT ${POST_COLUMNS} FROM miiverse_posts p
         WHERE ${POST_COMMUNITY_KEY} = ${communityKey('$1')} AND ${POST_COMMUNITY_KEY} <> ''
         ORDER BY ${ORDER_BY[query.sort]} LIMIT $2 OFFSET $3`,
       [name, query.limit, (query.page - 1) * query.limit],
@@ -397,7 +431,7 @@ export class MiiverseService implements OnModuleInit {
 
   async getPost(id: number): Promise<MiiversePost> {
     const [post] = await this.db.query<MiiversePost>(
-      `SELECT * FROM miiverse_posts WHERE id = $1`,
+      `SELECT ${POST_COLUMNS} FROM miiverse_posts p WHERE id = $1`,
       [id],
     );
     if (!post) throw new NotFoundException('La publicación no existe');
@@ -444,10 +478,47 @@ export class MiiverseService implements OnModuleInit {
     if (!summary) throw new NotFoundException('El usuario no tiene publicaciones');
 
     const posts = await this.db.query<MiiversePost>(
-      `SELECT * FROM miiverse_posts WHERE username = $1
+      `SELECT ${POST_COLUMNS} FROM miiverse_posts p WHERE username = $1
         ORDER BY ${ORDER_BY[query.sort]} LIMIT $2 OFFSET $3`,
       [username, query.limit, (query.page - 1) * query.limit],
     );
     return { ...summary, posts };
+  }
+
+  // ─── Comentarios (fase 3) ──────────────────────────────────────────────────
+
+  /** Comentarios de un post, del más antiguo al más nuevo (como Archiverse). */
+  async getComments(postId: number): Promise<MiiverseComment[]> {
+    await this.getPost(postId); // 404 si el post no existe
+    return this.db.query<MiiverseComment>(
+      `SELECT * FROM miiverse_comments WHERE post_id = $1
+        ORDER BY created_at ASC, id ASC
+        LIMIT 200`,
+      [postId],
+    );
+  }
+
+  async createComment(
+    postId: number,
+    dto: CreateCommentDto,
+    userId: number,
+    username: string,
+    avatarUrl: string,
+  ): Promise<MiiverseComment> {
+    const text = typeof dto?.content_text === 'string' ? dto.content_text.trim() : '';
+    if (!text) throw new BadRequestException('El comentario no puede estar vacío');
+    if (text.length > MAX_COMMENT_LENGTH) {
+      throw new BadRequestException(`El comentario no puede pasar de ${MAX_COMMENT_LENGTH} caracteres`);
+    }
+    await this.getPost(postId); // 404 si el post no existe
+
+    const [comment] = await this.db.query<MiiverseComment>(
+      `INSERT INTO miiverse_comments
+         (post_id, user_id, username, mii_avatar_url, content_text, is_spoiler)
+       VALUES ($1,$2,$3,$4,$5,$6)
+       RETURNING *`,
+      [postId, userId, username, avatarUrl, text, dto.is_spoiler === true],
+    );
+    return comment;
   }
 }
