@@ -1,5 +1,6 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
+import { EXTERNAL_TIMEOUT_MS, TtlCache, proxyImageUrl } from '../common/external-http';
 
 /** Formato que esperan los billboards del frontend (interfaz SteamGame). */
 export interface BillboardItem {
@@ -30,8 +31,11 @@ type MediaType = 'ANIME' | 'MANGA';
 export class MalService {
   private readonly logger = new Logger(MalService.name);
   private readonly anilistUrl = 'https://graphql.anilist.co';
-  private readonly CACHE_DURATION = 1 * 60 * 60 * 1000; // 1 hora
-  private readonly cache = new Map<MediaType, { data: BillboardItem[]; time: number }>();
+  // Una caché de 1 hora por tipo (anime y manga).
+  private readonly cache: Record<MediaType, TtlCache<BillboardItem[]>> = {
+    ANIME: new TtlCache(1 * 60 * 60 * 1000),
+    MANGA: new TtlCache(1 * 60 * 60 * 1000),
+  };
 
   // Pedimos solo los campos que usamos; isAdult:false evita contenido +18.
   private readonly query = `
@@ -49,11 +53,6 @@ export class MalService {
 
   constructor(private configService: ConfigService) {}
 
-  private wrapProxy(url: string): string {
-    const baseUrl = this.configService.get<string>('BASE_URL') || 'http://localhost:3000';
-    return `${baseUrl}/games/proxy?url=${encodeURIComponent(url)}`;
-  }
-
   // TRENDING_DESC = lo que más actividad tiene en AniList estos días
   // (en vivo), no el ranking histórico de siempre.
 
@@ -68,10 +67,8 @@ export class MalService {
   }
 
   private async getTop(type: MediaType, sort: string, idBase: number): Promise<BillboardItem[]> {
-    const cached = this.cache.get(type);
-    if (cached && Date.now() - cached.time < this.CACHE_DURATION) {
-      return cached.data;
-    }
+    const cached = this.cache[type].fresh;
+    if (cached) return cached;
 
     try {
       this.logger.log(`🌐 Solicitando top ${type} a AniList...`);
@@ -79,7 +76,7 @@ export class MalService {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
         body: JSON.stringify({ query: this.query, variables: { type, sort: [sort] } }),
-        signal: AbortSignal.timeout(8000),
+        signal: AbortSignal.timeout(EXTERNAL_TIMEOUT_MS),
       });
 
       if (!res.ok) {
@@ -99,16 +96,16 @@ export class MalService {
           appid: idBase + index,
           name: item.title.english ?? item.title.userPreferred ?? 'Sin título',
           author: author ?? 'Unknown Author',
-          image: cover ? this.wrapProxy(cover) : '',
+          image: cover ? proxyImageUrl(this.configService, cover) : '',
         };
       });
 
-      this.cache.set(type, { data: result, time: Date.now() });
+      this.cache[type].set(result);
       return result;
     } catch (e) {
       this.logger.error(`❌ Error obteniendo top ${type} de AniList: ${(e as Error).message}`);
       // Si falla, devolvemos lo último que funcionó (aunque esté caducado).
-      return cached?.data ?? [];
+      return this.cache[type].last ?? [];
     }
   }
 }

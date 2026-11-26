@@ -1,13 +1,17 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
+import {
+  EXTERNAL_TIMEOUT_MS,
+  TtlCache,
+  proxyImageUrl,
+  randomUserAgent,
+} from '../common/external-http';
 
 @Injectable()
 export class GamesService {
   private readonly logger = new Logger(GamesService.name);
-  // 🛡 Variables de caché para Steam
-  private cachedSteamData: any | null = null;
-  private lastFetchTime: number = 0;
-  private readonly CACHE_DURATION = 1 * 60 * 60 * 1000; // 1 hora
+  // Caché de la respuesta completa de Steam: 1 hora
+  private readonly cache = new TtlCache<any>(1 * 60 * 60 * 1000);
 
   constructor(private configService: ConfigService) {}
 
@@ -19,45 +23,29 @@ export class GamesService {
     return this.fetchFromSteamStore('new_releases');
   }
 
-  // 🕵️ Lista de User-Agents aleatorios para evadir bloqueos
-  private getRandomUserAgent(): string {
-    const userAgents = [
-      'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-      'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/119.0.0.0 Safari/537.36',
-      'Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:122.0) Gecko/20100101 Firefox/122.0',
-      'Mozilla/5.0 (Macintosh; Intel Mac OS X 10.15; rv:121.0) Gecko/20100101 Firefox/121.0'
-    ];
-    return userAgents[Math.floor(Math.random() * userAgents.length)];
-  }
-
   private async fetchFromSteamStore(category: string) {
-    const now = Date.now();
-    let data = this.cachedSteamData;
+    let data = this.cache.fresh;
 
-    if (!data || (now - this.lastFetchTime) >= this.CACHE_DURATION) {
+    if (!data) {
       try {
         console.log('🌐 Solicitando nuevos datos a Steam...');
-        
-        const controller = new AbortController();
-        const timeout = setTimeout(() => controller.abort(), 8000);
 
         const response = await fetch('https://store.steampowered.com/api/featuredcategories', {
-          signal: controller.signal,
+          signal: AbortSignal.timeout(EXTERNAL_TIMEOUT_MS),
           headers: {
-             'User-Agent': this.getRandomUserAgent(),
+             'User-Agent': randomUserAgent(),
              'Accept': 'application/json'
           }
         });
-        clearTimeout(timeout);
         data = await response.json();
-        
+
         // Guardar la respuesta completa en Caché
-        this.cachedSteamData = data;
-        this.lastFetchTime = now;
+        this.cache.set(data);
         console.log('✅ Caché de Steam actualizada exitosamente.');
       } catch (error) {
         console.error(`Error fetching Steam Store category [${category}]:`, error.message);
         // Si hay un error, usamos la caché vieja si existe, si no, retornamos vacío más abajo.
+        data = this.cache.last;
       }
     } else {
        console.log(`📦 Retornando Steam (${category}) desde la CACHÉ.`);
@@ -82,13 +70,8 @@ export class GamesService {
       return Promise.all(topGames.map(async (item: any) => ({
         appid: item.id,
         name: item.name,
-        image: this.wrapProxy(item.large_capsule_image || item.header_image)
+        image: proxyImageUrl(this.configService, item.large_capsule_image || item.header_image)
       })));
-  }
-
-  private wrapProxy(url: string): string {
-    const baseUrl = this.configService.get<string>('BASE_URL') || 'http://localhost:3000';
-    return `${baseUrl}/games/proxy?url=${encodeURIComponent(url)}`;
   }
 
   async getImageUrl(appid: number): Promise<string> {

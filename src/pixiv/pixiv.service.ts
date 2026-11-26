@@ -1,5 +1,11 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
+import {
+  EXTERNAL_TIMEOUT_MS,
+  TtlCache,
+  proxyImageUrl,
+  randomUserAgent,
+} from '../common/external-http';
 
 @Injectable()
 export class PixivService {
@@ -7,56 +13,32 @@ export class PixivService {
  
   constructor(private configService: ConfigService) {}
 
-  // 🛡 Variables clave para el sistema de Caché local
-  private cachedData: any[] | null = null;
-  private lastFetchTime: number = 0;
-  // Intervalo de 1 hora. Equilibrio entre actualización rápida e inmunidad a bloqueos.
-  private readonly CACHE_DURATION = 1 * 60 * 60 * 1000; 
-
-  private wrapProxy(url: string): string {
-    const baseUrl = this.configService.get<string>('BASE_URL') || 'http://localhost:3000';
-    return `${baseUrl}/games/proxy?url=${encodeURIComponent(url)}`;
-  }
-
-  // 🕵️ Lista de User-Agents aleatorios para simular navegadores reales y evadir bloqueos
-  private getRandomUserAgent(): string {
-    const userAgents = [
-      'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-      'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/119.0.0.0 Safari/537.36',
-      'Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:122.0) Gecko/20100101 Firefox/122.0',
-      'Mozilla/5.0 (Macintosh; Intel Mac OS X 10.15; rv:121.0) Gecko/20100101 Firefox/121.0',
-      'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.2.1 Safari/605.1.15'
-    ];
-    return userAgents[Math.floor(Math.random() * userAgents.length)];
-  }
+  // Caché de 1 hora. Equilibrio entre actualización rápida e inmunidad a bloqueos.
+  private readonly cache = new TtlCache<any[]>(1 * 60 * 60 * 1000);
 
   async getDailyRanking() {
-    const now = Date.now();
-
-    // 🏆 ¡Salvavidas! Si hay datos en caché y NO han pasado 6 horas, devolvemos la caché
-    if (this.cachedData && (now - this.lastFetchTime) < this.CACHE_DURATION) {
+    // Si hay datos en caché y no ha pasado 1 hora, devolvemos la caché
+    const cached = this.cache.fresh;
+    if (cached) {
       this.logger.log('📦 Retornando ranking de Pixiv desde la CACHÉ en memoria.');
-      return this.cachedData;
+      return cached;
     }
 
     try {
       this.logger.log('🌐 Solicitando nuevos datos frescos a Pixiv...');
-      
-      const controller = new AbortController();
-      const timeout = setTimeout(() => controller.abort(), 8000);
+
 
       // URL actual: https://www.pixiv.net/ranking.php?mode=daily&content=manga (Manga All Ages)
       const res = await fetch('https://www.pixiv.net/ranking.php?mode=daily&content=manga', {
-        signal: controller.signal,
+        signal: AbortSignal.timeout(EXTERNAL_TIMEOUT_MS),
         headers: {
-          'User-Agent': this.getRandomUserAgent(),
+          'User-Agent': randomUserAgent(),
           'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8',
           'Accept-Language': 'es-MX,es;q=0.9,en-US;q=0.8,en;q=0.7',
           'Referer': 'https://www.pixiv.net/',
           'DNT': '1' // Petición de "Do Not Track"
         }
       });
-      clearTimeout(timeout);
       const html = await res.text();
       
       const items: { id: string; title: string; author: string }[] = [];
@@ -97,12 +79,11 @@ export class PixivService {
         appid: 8000 + index,
         name: item.title,
         author: item.author,
-        image: this.wrapProxy(`https://pixiv.cat/${item.id}.jpg`)
+        image: proxyImageUrl(this.configService, `https://pixiv.cat/${item.id}.jpg`)
       }));
 
       // 💾 Guardar resultado exitoso en caché
-      this.cachedData = result;
-      this.lastFetchTime = now;
+      this.cache.set(result);
       this.logger.log('✅ Caché de Pixiv actualizada exitosamente. Próxima actualización en 1 hora.');
 
       return result;
@@ -116,11 +97,11 @@ export class PixivService {
   private getFallbackPixiv() {
     // Lista de MANGAS populares VERIFICADOS hoy que funcionan con pixiv.cat
     return [
-      { appid: 8001, name: 'Daily Manga 143408592', author: 'Pixiv Artist', image: this.wrapProxy('https://pixiv.cat/143408592.jpg') },
-      { appid: 8002, name: 'Daily Manga 143393681', author: 'Pixiv Artist', image: this.wrapProxy('https://pixiv.cat/143393681.jpg') },
-      { appid: 8003, name: 'Daily Manga 143385547', author: 'Pixiv Artist', image: this.wrapProxy('https://pixiv.cat/143385547.jpg') },
-      { appid: 8004, name: 'Daily Manga 143382597', author: 'Pixiv Artist', image: this.wrapProxy('https://pixiv.cat/143382597.jpg') },
-      { appid: 8005, name: 'Daily Manga 143378581', author: 'Pixiv Artist', image: this.wrapProxy('https://pixiv.cat/143378581.jpg') }
+      { appid: 8001, name: 'Daily Manga 143408592', author: 'Pixiv Artist', image: proxyImageUrl(this.configService, 'https://pixiv.cat/143408592.jpg') },
+      { appid: 8002, name: 'Daily Manga 143393681', author: 'Pixiv Artist', image: proxyImageUrl(this.configService, 'https://pixiv.cat/143393681.jpg') },
+      { appid: 8003, name: 'Daily Manga 143385547', author: 'Pixiv Artist', image: proxyImageUrl(this.configService, 'https://pixiv.cat/143385547.jpg') },
+      { appid: 8004, name: 'Daily Manga 143382597', author: 'Pixiv Artist', image: proxyImageUrl(this.configService, 'https://pixiv.cat/143382597.jpg') },
+      { appid: 8005, name: 'Daily Manga 143378581', author: 'Pixiv Artist', image: proxyImageUrl(this.configService, 'https://pixiv.cat/143378581.jpg') }
     ];
   }
 }

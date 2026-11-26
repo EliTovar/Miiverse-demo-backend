@@ -1,5 +1,6 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
+import { EXTERNAL_TIMEOUT_MS, TtlCache, proxyImageUrl } from '../common/external-http';
 
 /** Formato que consume el frontend (DiscordBot en DiscordService del frontend). */
 export interface DiscordServerItem {
@@ -45,8 +46,7 @@ export class DiscordService {
   // -------------------------------------------------------------------------
 
   // Decisión de Eli: los servidores de Discord se renuevan cada 5 horas.
-  private readonly CACHE_DURATION = 5 * 60 * 60 * 1000; // 5 horas
-  private cache: { data: DiscordServerItem[]; time: number } | null = null;
+  private readonly cache = new TtlCache<DiscordServerItem[]>(5 * 60 * 60 * 1000); // 5 horas
 
   constructor(private configService: ConfigService) {}
 
@@ -63,9 +63,8 @@ export class DiscordService {
   }
 
   private async getServers(): Promise<DiscordServerItem[]> {
-    if (this.cache && Date.now() - this.cache.time < this.CACHE_DURATION) {
-      return this.cache.data;
-    }
+    const cached = this.cache.fresh;
+    if (cached) return cached;
 
     this.logger.log('🌐 Consultando servidores en la API de invitaciones de Discord...');
     const servers: DiscordServerItem[] = [];
@@ -78,17 +77,17 @@ export class DiscordService {
 
     if (servers.length === 0) {
       // Sin datos nuevos: devolvemos lo último que funcionó (aunque esté caducado).
-      return this.cache?.data ?? [];
+      return this.cache.last ?? [];
     }
 
-    this.cache = { data: servers, time: Date.now() };
+    this.cache.set(servers);
     return servers;
   }
 
   private async fetchInvite(code: string): Promise<DiscordServerItem | null> {
     try {
       const res = await fetch(`https://discord.com/api/v10/invites/${code}?with_counts=true`, {
-        signal: AbortSignal.timeout(8000),
+        signal: AbortSignal.timeout(EXTERNAL_TIMEOUT_MS),
       });
       if (!res.ok) {
         // 404 = invitación caducada; 429 = demasiadas peticiones.
@@ -113,7 +112,7 @@ export class DiscordService {
         members,
         online,
         description: `${this.formatCount(members)} miembros · ${this.formatCount(online)} en línea`,
-        image: this.wrapProxy(icon),
+        image: proxyImageUrl(this.configService, icon),
         url: `https://discord.gg/${code}`,
       };
     } catch (e) {
@@ -129,8 +128,4 @@ export class DiscordService {
     return String(n);
   }
 
-  private wrapProxy(url: string): string {
-    const baseUrl = this.configService.get<string>('BASE_URL') || 'http://localhost:3000';
-    return `${baseUrl}/games/proxy?url=${encodeURIComponent(url)}`;
-  }
 }

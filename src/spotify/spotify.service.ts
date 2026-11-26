@@ -1,5 +1,11 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
+import {
+  EXTERNAL_TIMEOUT_MS,
+  TtlCache,
+  proxyImageUrl,
+  randomUserAgent,
+} from '../common/external-http';
 
 @Injectable()
 export class SpotifyService {
@@ -8,50 +14,28 @@ export class SpotifyService {
 
   constructor(private configService: ConfigService) {}
 
-  // 🛡 Variables de caché para Spotify / Kworb
-  private cachedData: any[] | null = null;
-  private lastFetchTime: number = 0;
-  private readonly CACHE_DURATION = 1 * 60 * 60 * 1000; // 1 hora
-
-  private wrapProxy(url: string): string {
-    const baseUrl = this.configService.get<string>('BASE_URL') || 'http://localhost:3000';
-    return `${baseUrl}/games/proxy?url=${encodeURIComponent(url)}`;
-  }
-
-  // 🕵️ Lista de User-Agents aleatorios para evadir bloqueos
-  private getRandomUserAgent(): string {
-    const userAgents = [
-      'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-      'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/119.0.0.0 Safari/537.36',
-      'Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:122.0) Gecko/20100101 Firefox/122.0',
-      'Mozilla/5.0 (Macintosh; Intel Mac OS X 10.15; rv:121.0) Gecko/20100101 Firefox/121.0'
-    ];
-    return userAgents[Math.floor(Math.random() * userAgents.length)];
-  }
+  // Caché de Spotify / Kworb: 1 hora
+  private readonly cache = new TtlCache<any[]>(1 * 60 * 60 * 1000);
 
   async getTop5() {
-    const now = Date.now();
-    if (this.cachedData && (now - this.lastFetchTime) < this.CACHE_DURATION) {
+    const cached = this.cache.fresh;
+    if (cached) {
       this.logger.log('📦 Retornando Spotify Top 5 desde la CACHÉ.');
-      return this.cachedData;
+      return cached;
     }
 
     try {
       this.logger.log('🌐 Solicitando nuevos datos frescos a Kworb (Spotify)...');
-      
-      const controller = new AbortController();
-      const timeout = setTimeout(() => controller.abort(), 8000);
 
       const response = await fetch('https://kworb.net/spotify/country/global_daily.html', {
-        signal: controller.signal,
+        signal: AbortSignal.timeout(EXTERNAL_TIMEOUT_MS),
         headers: {
-          'User-Agent': this.getRandomUserAgent(),
+          'User-Agent': randomUserAgent(),
           'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8',
           'Accept-Language': 'en-US,en;q=0.5',
           'Referer': 'https://kworb.net/'
         }
       });
-      clearTimeout(timeout);
       const html = await response.text();
       
       // Parsear la tabla de Kworb
@@ -81,20 +65,19 @@ export class SpotifyService {
           return {
             appid: 5000 + index, // IDs únicos para Spotify
             name: `${song.artist} - ${song.title}`,
-            image: this.wrapProxy(image)
+            image: proxyImageUrl(this.configService, image)
           };
         })
       );
 
       // Guardar en caché
-      this.cachedData = results;
-      this.lastFetchTime = now;
+      this.cache.set(results);
       this.logger.log('✅ Caché de Spotify (Kworb) actualizada exitosamente.');
 
       return results;
     } catch (e) {
       this.logger.error('❌ Failed to fetch Spotify Top 5 from Kworb', e.stack);
-      return this.cachedData || []; // Eliminamos getFallbackSongs() por petición del usuario
+      return this.cache.last || []; // Eliminamos getFallbackSongs() por petición del usuario
     }
   }
 
@@ -113,9 +96,5 @@ export class SpotifyService {
     }
     // Fallback image (Spotify logo o similar)
     return 'https://storage.googleapis.com/pr-newsroom-wp/1/2018/08/Spotify_Logo_RGB_Green.png'; 
-  }
-
-  private getFallbackSongs() {
-    return []; // Ya no usamos canciones ficticias
   }
 }
