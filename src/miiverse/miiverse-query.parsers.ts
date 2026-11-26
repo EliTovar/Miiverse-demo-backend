@@ -1,6 +1,9 @@
 import { BadRequestException } from '@nestjs/common';
-import type { ModerationFilters, PageQuery } from './miiverse.service';
-import type { PostSort } from './miiverse-post.entity';
+import type {
+  ModerationFilters,
+  PageQuery,
+  PostSort,
+} from './miiverse-post.entity';
 
 /*
  * Conversión y validación de los parámetros de la URL de /miiverse.

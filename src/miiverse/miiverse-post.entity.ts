@@ -99,3 +99,23 @@ export interface MiiverseTopPlayers {
   week_end: Date;                 // lunes siguiente 00:00 (no incluido)
   players: MiiverseTopPlayer[];
 }
+
+/** Filtros ya validados de la vista de moderación (ver toModerationFilters en miiverse-query.parsers.ts). */
+export interface ModerationFilters {
+  kind: 'all' | 'post' | 'comment';
+  text?: string;
+  username?: string;
+  community?: string;
+  /** Zona horaria IANA del moderador (p. ej. America/Mexico_City) para día/mes/hora. */
+  timeZone: string;
+  date?: string;   // YYYY-MM-DD
+  month?: string;  // YYYY-MM
+  hour?: number;   // 0-23
+}
+
+/** Paginación ya validada que reciben los métodos de lectura. */
+export interface PageQuery {
+  page: number;
+  limit: number;
+  sort: PostSort;
+}

@@ -10,7 +10,11 @@ import {
   Query,
   UseGuards,
 } from '@nestjs/common';
-import { MiiverseService } from './miiverse.service';
+import { PostsService } from './posts.service';
+import { CommentsService } from './comments.service';
+import { CommunitiesService } from './communities.service';
+import { ProfilesService } from './profiles.service';
+import { ModerationService } from './moderation.service';
 import { avatarFor, toModerationFilters, toPageQuery, toTimeZone } from './miiverse-query.parsers';
 import { CreatePostDto } from './dto/create-post.dto';
 import { CreateCommentDto, UpdateCommentDto } from './dto/create-comment.dto';
@@ -26,7 +30,13 @@ import { BadRequestException, Logger, UnauthorizedException } from '@nestjs/comm
 export class MiiverseController {
   private readonly logger = new Logger(MiiverseController.name);
 
-  constructor(private readonly miiverseService: MiiverseService) {}
+  constructor(
+    private readonly posts: PostsService,
+    private readonly comments: CommentsService,
+    private readonly communities: CommunitiesService,
+    private readonly profiles: ProfilesService,
+    private readonly moderation: ModerationService,
+  ) {}
 
   /** Feed público – accessible por cualquier visitante (incluso sin JWT) */
   @Get('feed')
@@ -34,7 +44,7 @@ export class MiiverseController {
     @Query('page') page: string = '1',
     @Query('limit') limit: string = '20',
   ) {
-    return this.miiverseService.getFeed(+page, +limit);
+    return this.posts.getFeed(+page, +limit);
   }
 
   /** Publicar un post – requiere estar autenticado */
@@ -49,7 +59,7 @@ export class MiiverseController {
       throw new UnauthorizedException('Debe iniciar sesión para publicar');
     }
 
-    return this.miiverseService.createPost(dto, user.id, user.username, avatarFor(user.username));
+    return this.posts.createPost(dto, user.id, user.username, avatarFor(user.username));
   }
 
   /** Toggle Yeah en un post – requiere estar autenticado */
@@ -59,7 +69,7 @@ export class MiiverseController {
     @Param('id', ParseIntPipe) postId: number,
     @CurrentUser() user: AuthUser,
   ) {
-    return this.miiverseService.toggleYeah(postId, user.id);
+    return this.posts.toggleYeah(postId, user.id);
   }
 
   // ─── Lectura estilo Archiverse (públicas, sin JWT) ─────────────────────────
@@ -67,7 +77,7 @@ export class MiiverseController {
   /** Lista de comunidades (a partir de game_title). `q` filtra por nombre. */
   @Get('communities')
   getCommunities(@Query('q') q?: string) {
-    return this.miiverseService.getCommunities(q);
+    return this.communities.getCommunities(q);
   }
 
   /** Resumen de una comunidad + una página de sus posts. */
@@ -78,19 +88,19 @@ export class MiiverseController {
     @Query('limit') limit?: string,
     @Query('sort') sort?: string,
   ) {
-    return this.miiverseService.getCommunity(name, toPageQuery(page, limit, sort));
+    return this.communities.getCommunity(name, toPageQuery(page, limit, sort));
   }
 
   /** Un post concreto. */
   @Get('posts/:id')
   getPost(@Param('id', ParseIntPipe) id: number) {
-    return this.miiverseService.getPost(id);
+    return this.posts.getPost(id);
   }
 
   /** Buscar usuarios por nombre (`q`). Sin `q`, los más activos. */
   @Get('users')
   searchUsers(@Query('q') q?: string) {
-    return this.miiverseService.searchUsers(q);
+    return this.profiles.searchUsers(q);
   }
 
   /**
@@ -103,7 +113,7 @@ export class MiiverseController {
     if (!Number.isInteger(weeks) || weeks < 0 || weeks > 520) {
       throw new BadRequestException('weeksAgo debe ser un número entero de 0 a 520');
     }
-    return this.miiverseService.getTopPlayers(weeks, toTimeZone(tz));
+    return this.profiles.getTopPlayers(weeks, toTimeZone(tz));
   }
 
   /** Comentarios de un post (públicos). Con sesión, indica a cuáles ya diste Yeah. */
@@ -112,7 +122,7 @@ export class MiiverseController {
     @Param('id', ParseIntPipe) id: number,
     @CurrentUser() user: AuthUser | null,
   ) {
-    return this.miiverseService.getComments(id, user?.id ?? null);
+    return this.comments.getComments(id, user?.id ?? null);
   }
 
   /** Comentar un post – requiere estar autenticado. */
@@ -126,7 +136,7 @@ export class MiiverseController {
     if (!user?.id || !user.username) {
       throw new UnauthorizedException('Debe iniciar sesión para comentar');
     }
-    return this.miiverseService.createComment(id, dto, user.id, user.username, avatarFor(user.username));
+    return this.comments.createComment(id, dto, user.id, user.username, avatarFor(user.username));
   }
 
   /** Editar un comentario – solo su autor (403 si no lo es). */
@@ -137,7 +147,7 @@ export class MiiverseController {
     @Body() dto: UpdateCommentDto,
     @CurrentUser() user: AuthUser,
   ) {
-    return this.miiverseService.updateComment(id, dto, user.id);
+    return this.comments.updateComment(id, dto, user.id);
   }
 
   /** Borrar un comentario – su autor o un administrador (403 si no). */
@@ -147,7 +157,7 @@ export class MiiverseController {
     @Param('id', ParseIntPipe) id: number,
     @CurrentUser() user: AuthUser,
   ) {
-    return this.miiverseService.deleteComment(id, user.id, user.role === Role.ADMIN);
+    return this.comments.deleteComment(id, user.id, user.role === Role.ADMIN);
   }
 
   /**
@@ -160,7 +170,7 @@ export class MiiverseController {
   @UseGuards(AuthRequiredGuard)
   @Roles(Role.ADMIN)
   getModerationItems(@Query() query: Record<string, string | undefined>) {
-    return this.miiverseService.getModerationItems(
+    return this.moderation.getModerationItems(
       toModerationFilters(query),
       toPageQuery(query.page, query.limit),
     );
@@ -171,7 +181,7 @@ export class MiiverseController {
   @UseGuards(AuthRequiredGuard)
   @Roles(Role.ADMIN)
   deletePost(@Param('id', ParseIntPipe) id: number) {
-    return this.miiverseService.deletePost(id);
+    return this.posts.deletePost(id);
   }
 
   /** Dar o quitar Yeah a un comentario – requiere sesión. */
@@ -181,7 +191,7 @@ export class MiiverseController {
     @Param('id', ParseIntPipe) id: number,
     @CurrentUser() user: AuthUser,
   ) {
-    return this.miiverseService.toggleCommentYeah(id, user.id);
+    return this.comments.toggleCommentYeah(id, user.id);
   }
 
   /** Perfil público de un usuario + una página de sus posts. */
@@ -192,6 +202,6 @@ export class MiiverseController {
     @Query('limit') limit?: string,
     @Query('sort') sort?: string,
   ) {
-    return this.miiverseService.getUserProfile(username, toPageQuery(page, limit, sort));
+    return this.profiles.getUserProfile(username, toPageQuery(page, limit, sort));
   }
 }
