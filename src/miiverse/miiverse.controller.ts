@@ -10,7 +10,7 @@ import {
   Query,
   UseGuards,
 } from '@nestjs/common';
-import { MiiverseService, PageQuery } from './miiverse.service';
+import { MiiverseService, ModerationFilters, PageQuery } from './miiverse.service';
 import { PostSort } from './miiverse-post.entity';
 import { CreatePostDto } from './dto/create-post.dto';
 import { CreateCommentDto, UpdateCommentDto } from './dto/create-comment.dto';
@@ -19,9 +19,56 @@ import { AuthRequiredGuard } from '../auth/guards/auth-required.guard';
 import { Roles } from '../auth/decorator/roles.decorator';
 import { Role } from '../auth/constants/roles.enum';
 import type { AuthUser } from '../auth/interfaces/auth.user.interface';
-import { Logger, UnauthorizedException } from '@nestjs/common';
+import { BadRequestException, Logger, UnauthorizedException } from '@nestjs/common';
 
 const SORTS: PostSort[] = ['recent', 'oldest', 'popular'];
+
+/**
+ * Valida los filtros de moderación de la URL. Responde 400 si alguno tiene un
+ * formato incorrecto, en vez de ignorarlo en silencio.
+ */
+function toModerationFilters(q: Record<string, string | undefined>): ModerationFilters {
+  const clean = (v?: string) => (v && v.trim() ? v.trim() : undefined);
+
+  const kind = q.type ?? 'all';
+  if (!['all', 'post', 'comment'].includes(kind)) {
+    throw new BadRequestException('type debe ser all, post o comment');
+  }
+
+  const timeZone = q.tz ?? 'UTC';
+  try {
+    new Intl.DateTimeFormat('en', { timeZone }); // lanza RangeError si la zona no existe
+  } catch {
+    throw new BadRequestException('Zona horaria no válida');
+  }
+
+  const date = clean(q.date);
+  if (date && (!/^\d{4}-\d{2}-\d{2}$/.test(date) || Number.isNaN(Date.parse(date)))) {
+    throw new BadRequestException('date debe tener el formato AAAA-MM-DD');
+  }
+  const month = clean(q.month);
+  if (month && !/^\d{4}-(0[1-9]|1[0-2])$/.test(month)) {
+    throw new BadRequestException('month debe tener el formato AAAA-MM');
+  }
+  let hour: number | undefined;
+  if (clean(q.hour) !== undefined) {
+    hour = Number(q.hour);
+    if (!Number.isInteger(hour) || hour < 0 || hour > 23) {
+      throw new BadRequestException('hour debe ser un número de 0 a 23');
+    }
+  }
+
+  return {
+    kind: kind as ModerationFilters['kind'],
+    text: clean(q.q),
+    username: clean(q.user),
+    community: clean(q.community),
+    timeZone,
+    date,
+    month,
+    hour,
+  };
+}
 
 /** Avatar generado a partir del nombre (lo usan posts y comentarios). */
 function avatarFor(username: string): string {
@@ -155,19 +202,27 @@ export class MiiverseController {
   }
 
   /**
-   * Moderación: todos los comentarios, del más nuevo al más viejo.
-   * Solo admin: AuthRequiredGuard exige sesión (401) y @Roles lo comprueba el
-   * RolesGuard global (403 si el rol del token no es admin).
+   * Moderación: posts y comentarios con filtros. Solo admin: AuthRequiredGuard
+   * exige sesión (401) y @Roles lo comprueba el RolesGuard global (403).
+   * Parámetros: type=all|post|comment, q, user, community, date=AAAA-MM-DD,
+   * month=AAAA-MM, hour=0-23, tz=zona IANA, page, limit.
    */
-  @Get('admin/comments')
+  @Get('admin/items')
   @UseGuards(AuthRequiredGuard)
   @Roles(Role.ADMIN)
-  getCommentsForModeration(
-    @Query('q') q?: string,
-    @Query('page') page?: string,
-    @Query('limit') limit?: string,
-  ) {
-    return this.miiverseService.getCommentsForModeration(q, toPageQuery(page, limit));
+  getModerationItems(@Query() query: Record<string, string | undefined>) {
+    return this.miiverseService.getModerationItems(
+      toModerationFilters(query),
+      toPageQuery(query.page, query.limit),
+    );
+  }
+
+  /** Borrar un post – solo admin (moderación). Borra también sus comentarios. */
+  @Delete('posts/:id')
+  @UseGuards(AuthRequiredGuard)
+  @Roles(Role.ADMIN)
+  deletePost(@Param('id', ParseIntPipe) id: number) {
+    return this.miiverseService.deletePost(id);
   }
 
   /** Dar o quitar Yeah a un comentario – requiere sesión. */

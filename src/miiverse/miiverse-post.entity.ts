@@ -64,9 +64,22 @@ export interface MiiverseComment {
   yeahed: boolean;              // si el usuario que pregunta ya dio Yeah
 }
 
-/** Comentario visto desde la moderación: incluye datos del post. */
-export interface MiiverseAdminComment extends MiiverseComment {
-  post_text: string | null;
-  post_username: string;
-  post_game_title: string | null;
+/** Fila de la vista de moderación: un post o un comentario. */
+export interface MiiverseModerationItem {
+  kind: 'post' | 'comment';
+  id: number;
+  post_id: number;               // el propio id si es un post
+  username: string;
+  mii_avatar_url: string | null;
+  content_text: string | null;
+  drawing_url: string | null;    // solo posts
+  screenshot_url: string | null; // solo posts
+  game_title: string | null;     // comunidad (la del post, si es comentario)
+  is_spoiler: boolean;
+  created_at: Date;
+  yeahs: number;
+  comments_count: number | null; // solo posts
+  post_text: string | null;      // solo comentarios: texto del post
+  post_username: string | null;  // solo comentarios: autor del post
+  total: number;                 // resultados de toda la búsqueda
 }
