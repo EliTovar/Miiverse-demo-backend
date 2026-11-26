@@ -14,7 +14,7 @@ import {
 } from '@nestjs/websockets';
 import { JwtService } from '@nestjs/jwt';
 import { Server, Socket } from 'socket.io';
-import { AIService } from 'src/ai/ai.service';
+import { AIService } from '../ai/ai.service';
 import { UsersService } from '../users/users.service';
 
 interface Player {

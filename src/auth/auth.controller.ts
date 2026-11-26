@@ -4,7 +4,7 @@ import { Request } from 'express';
 import { AuthService } from './auth.service';
 import { LoginDto } from './interfaces/login.dto';
 import { AuthRequiredGuard } from './guards/auth-required.guard';
-import { RegisterDto } from 'src/users/dto/register-user.dto';
+import { RegisterDto } from '../users/dto/register-user.dto';
 
 interface UserPayload {
   id: string;

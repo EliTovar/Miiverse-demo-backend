@@ -1,7 +1,6 @@
 /* eslint-disable prettier/prettier */
 import { Module } from '@nestjs/common';
 import { AppController } from './app.controller';
-import { AppService } from './app.service';
 import { DatabaseModule } from './database/database.module';
 import { UsersModule } from './users/users.module';
 import { AuthModule } from './auth/auth.module';
@@ -16,16 +15,16 @@ import { SpotifyModule } from './spotify/spotify.module';
 import { MalModule } from './mal/mal.module';
 import { PixivModule } from './pixiv/pixiv.module';
 import { MiiverseModule } from './miiverse/miiverse.module';
+import { AdminModule } from './users/admin/admin.module';
 
 
 @Module({
   imports: [ConfigModule.forRoot({
       isGlobal: true,
     }),
-    DatabaseModule, UsersModule, AuthModule, MultiplayerModule, GamesModule, DiscordModule, SpotifyModule, MalModule, PixivModule, MiiverseModule],
+    DatabaseModule, UsersModule, AuthModule, MultiplayerModule, GamesModule, DiscordModule, SpotifyModule, MalModule, PixivModule, MiiverseModule, AdminModule],
   controllers: [AppController],
   providers: [
-    AppService,
     {
       provide: APP_GUARD,
       useClass: JwtAuthGuard,

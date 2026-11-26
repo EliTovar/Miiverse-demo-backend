@@ -1,12 +1,12 @@
 /* eslint-disable prettier/prettier */
 
 import { Body, Controller, Get, Param, ParseIntPipe, Patch, Query, UseGuards } from "@nestjs/common";
-import { Role } from "src/auth/constants/roles.enum";
-import { Roles } from "src/auth/decorator/roles.decorator";
-import { RolesGuard } from "src/auth/guards/roles.guard";
-import { JwtAuthGuard } from "src/auth/jwt-auth.guard";
-import { CurrentUser } from "src/auth/decorator/current.decorator";
-import type { AuthUser } from "src/auth/interfaces/auth.user.interface";
+import { Role } from "../../auth/constants/roles.enum";
+import { Roles } from "../../auth/decorator/roles.decorator";
+import { RolesGuard } from "../../auth/guards/roles.guard";
+import { JwtAuthGuard } from "../../auth/jwt-auth.guard";
+import { CurrentUser } from "../../auth/decorator/current.decorator";
+import type { AuthUser } from "../../auth/interfaces/auth.user.interface";
 import { AdminService } from "./admin.service";
 
 /**

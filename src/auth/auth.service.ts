@@ -5,9 +5,9 @@
 import { BadRequestException, ConflictException, Injectable, UnauthorizedException } from '@nestjs/common';
 import { JwtService } from '@nestjs/jwt';
 import * as bcrypt from 'bcrypt';
-import { DatabaseService } from 'src/database/database.service';
+import { DatabaseService } from '../database/database.service';
 import { UserWithPassword } from './interfaces/user-with-password.interface';
-import { RegisterDto } from 'src/users/dto/register-user.dto';
+import { RegisterDto } from '../users/dto/register-user.dto';
 
 @Injectable()
 export class AuthService {

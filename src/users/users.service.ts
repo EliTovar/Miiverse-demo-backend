@@ -52,10 +52,4 @@ export class UsersService {
       [pos.x, pos.y, pos.z, rot.y, id],
     );
   }
-
-  async findAll() {
-    return this.db.query(
-      'SELECT id, username, email, pos_x, pos_y, pos_z, rot_y, created_at FROM users',
-    );
-  }
 }
