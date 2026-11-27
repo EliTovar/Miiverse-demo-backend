@@ -114,39 +114,32 @@ export class PostsService {
   async toggleYeah(postId: number, userId: number): Promise<{ yeahs: number }> {
     await this.getPost(postId); // 404 si el post no existe (antes: error 500 de la BD)
 
-    // Revisar si ya dio yeah
-    const existing = await this.db.query(
-      `SELECT 1 FROM miiverse_yeahs WHERE post_id=$1 AND user_id=$2`,
+    // Una sola sentencia: quita el Yeah si existía o lo añade si no, y ajusta el
+    // contador. PostgreSQL ejecuta la sentencia entera de forma atómica, así que
+    // dos clics muy seguidos ya no pueden desincronizar `yeahs` (antes eran 4
+    // consultas sueltas, sin transacción).
+    const [row] = await this.db.query<{ yeahs: number }>(
+      `WITH removed AS (
+         DELETE FROM miiverse_yeahs WHERE post_id = $1 AND user_id = $2
+         RETURNING 1
+       ),
+       added AS (
+         INSERT INTO miiverse_yeahs (post_id, user_id)
+         SELECT $1, $2
+          WHERE NOT EXISTS (SELECT 1 FROM removed)
+            AND EXISTS (SELECT 1 FROM miiverse_posts WHERE id = $1)
+         ON CONFLICT DO NOTHING
+         RETURNING 1
+       )
+       UPDATE miiverse_posts
+          SET yeahs = yeahs + (SELECT COUNT(*) FROM added) - (SELECT COUNT(*) FROM removed)
+        WHERE id = $1
+       RETURNING yeahs`,
       [postId, userId],
     );
-
-    if (existing.length > 0) {
-      // Quitar yeah
-      await this.db.query(
-        `DELETE FROM miiverse_yeahs WHERE post_id=$1 AND user_id=$2`,
-        [postId, userId],
-      );
-      await this.db.query(
-        `UPDATE miiverse_posts SET yeahs = yeahs - 1 WHERE id=$1`,
-        [postId],
-      );
-    } else {
-      // Dar yeah
-      await this.db.query(
-        `INSERT INTO miiverse_yeahs(post_id, user_id) VALUES($1,$2) ON CONFLICT DO NOTHING`,
-        [postId, userId],
-      );
-      await this.db.query(
-        `UPDATE miiverse_posts SET yeahs = yeahs + 1 WHERE id=$1`,
-        [postId],
-      );
-    }
-
-    const [{ yeahs }] = await this.db.query<{ yeahs: number }>(
-      `SELECT yeahs FROM miiverse_posts WHERE id=$1`,
-      [postId],
-    );
-    return { yeahs };
+    // El post pudo borrarse justo entre las dos consultas.
+    if (!row) throw new NotFoundException('La publicación no existe');
+    return { yeahs: row.yeahs };
   }
 
   async getPost(id: number): Promise<MiiversePost> {

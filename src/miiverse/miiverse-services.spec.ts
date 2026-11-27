@@ -84,6 +84,22 @@ describe('PostsService · Yeah a un post', () => {
       NotFoundException,
     );
   });
+
+  it('devuelve el contador que deja la BD', async () => {
+    const { service } = makeService((sql) =>
+      sql.includes('WITH removed') ? [{ yeahs: 3 }] : [post],
+    );
+    await expect(service.toggleYeah(1, 1)).resolves.toEqual({ yeahs: 3 });
+  });
+
+  it('responde 404 si el post se borró justo antes del Yeah', async () => {
+    const { service } = makeService((sql) =>
+      sql.includes('WITH removed') ? [] : [post],
+    );
+    await expect(service.toggleYeah(1, 1)).rejects.toBeInstanceOf(
+      NotFoundException,
+    );
+  });
 });
 
 describe('CommentsService · comentarios', () => {

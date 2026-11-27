@@ -1,6 +1,7 @@
 import { Injectable, Logger, OnModuleInit } from '@nestjs/common';
 import { DatabaseService } from '../../database/database.service';
 import { SEED_POSTS } from './seed-posts';
+import { POST_COMMUNITY_KEY } from '../miiverse-sql';
 
 /**
  * Al arrancar crea (o actualiza) las tablas de Miiverse e inserta los posts
@@ -93,6 +94,22 @@ export class MiiverseSchemaService implements OnModuleInit {
         user_id     INTEGER REFERENCES users(id) ON DELETE CASCADE,
         PRIMARY KEY (comment_id, user_id)
       );
+    `);
+
+    // Índices para las lecturas de posts. Con pocos posts no se notan; evitan
+    // que el feed, los perfiles y las comunidades recorran la tabla entera
+    // cuando crezca. CREATE INDEX IF NOT EXISTS es idempotente.
+    // - feed (ORDER BY created_at DESC, id DESC)
+    // - perfil (WHERE username = $1, ordenado por fecha)
+    // - comunidad (WHERE <clave normalizada> = $1): se usa la MISMA expresión
+    //   que en las consultas, si no PostgreSQL no podría usar el índice.
+    await this.db.query(`
+      CREATE INDEX IF NOT EXISTS idx_miiverse_posts_created
+        ON miiverse_posts (created_at DESC, id DESC);
+      CREATE INDEX IF NOT EXISTS idx_miiverse_posts_username
+        ON miiverse_posts (username, created_at DESC);
+      CREATE INDEX IF NOT EXISTS idx_miiverse_posts_community
+        ON miiverse_posts ((${POST_COMMUNITY_KEY}));
     `);
 
     this.logger.log('✅ Schema de Miiverse verificado');
