@@ -8,7 +8,12 @@ import {
   MiiverseUserSummary,
   PageQuery,
 } from './miiverse-post.entity';
-import { ORDER_BY, POST_COLUMNS, POST_COMMUNITY_KEY } from './miiverse-sql';
+import {
+  drawingPath,
+  ORDER_BY,
+  POST_COLUMNS,
+  POST_COMMUNITY_KEY,
+} from './miiverse-sql';
 
 /** Usuarios vistos desde la red social: búsqueda, perfil público y Top Players. */
 @Injectable()
@@ -84,7 +89,7 @@ export class ProfilesService {
          SELECT (date_trunc('week', NOW() AT TIME ZONE $1) - ($2::int * INTERVAL '7 days')) AT TIME ZONE $1 AS start
        ),
        per_post AS (
-         SELECT p.id, p.username, p.mii_avatar_url, p.drawing_url, p.created_at, COUNT(*)::int AS yeahs
+         SELECT p.id, p.username, p.mii_avatar_url, ${drawingPath('p')} AS drawing_url, p.created_at, COUNT(*)::int AS yeahs
            FROM miiverse_yeahs y
            JOIN miiverse_posts p ON p.id = y.post_id
            CROSS JOIN week w

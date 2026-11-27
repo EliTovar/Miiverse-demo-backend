@@ -5,7 +5,7 @@ import {
   ModerationFilters,
   PageQuery,
 } from './miiverse-post.entity';
-import { communityKey } from './miiverse-sql';
+import { communityKey, drawingPath } from './miiverse-sql';
 
 /** Vista de moderación (solo admin): posts y comentarios juntos con filtros. */
 @Injectable()
@@ -54,7 +54,7 @@ export class ModerationService {
       `SELECT i.*, COUNT(*) OVER()::int AS total
          FROM (
            SELECT 'post' AS kind, p.id, p.id AS post_id, p.username, p.mii_avatar_url,
-                  p.content_text, p.drawing_url, p.screenshot_url, p.game_title,
+                  p.content_text, ${drawingPath('p')} AS drawing_url, p.screenshot_url, p.game_title,
                   p.is_spoiler, p.created_at, p.yeahs,
                   (SELECT COUNT(*)::int FROM miiverse_comments c WHERE c.post_id = p.id) AS comments_count,
                   NULL::text AS post_text, NULL::varchar AS post_username

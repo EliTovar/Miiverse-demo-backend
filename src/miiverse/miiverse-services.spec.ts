@@ -25,6 +25,8 @@ function makeService(handler: Handler = () => []) {
   const service = {
     createPost: posts.createPost.bind(posts),
     toggleYeah: posts.toggleYeah.bind(posts),
+    getFeed: posts.getFeed.bind(posts),
+    getDrawing: posts.getDrawing.bind(posts),
     createComment: comments.createComment.bind(comments),
     updateComment: comments.updateComment.bind(comments),
     deleteComment: comments.deleteComment.bind(comments),
@@ -99,6 +101,32 @@ describe('PostsService · Yeah a un post', () => {
     await expect(service.toggleYeah(1, 1)).rejects.toBeInstanceOf(
       NotFoundException,
     );
+  });
+});
+
+describe('PostsService · dibujos', () => {
+  it('el feed pide la ruta del dibujo, no el dibujo entero', async () => {
+    const { service, query } = makeService(() => []);
+    await service.getFeed(1, 20);
+    const sql = query.mock.calls[0][0];
+    expect(sql).not.toContain('p.*');
+    expect(sql).toContain("'/miiverse/posts/' || p.id || '/drawing'");
+  });
+
+  it('devuelve el dibujo guardado en la BD como imagen', async () => {
+    const { service } = makeService(() => [{ drawing_url: PNG }]);
+    const { buffer, contentType } = await service.getDrawing(7);
+    expect(contentType).toBe('image/png');
+    expect(buffer).toEqual(Buffer.from('iVBORw0KGgo=', 'base64'));
+  });
+
+  it('responde 404 si el post no existe o no tiene dibujo', async () => {
+    for (const rows of [[], [{ drawing_url: null }]]) {
+      const { service } = makeService(() => rows);
+      await expect(service.getDrawing(7)).rejects.toBeInstanceOf(
+        NotFoundException,
+      );
+    }
   });
 });
 

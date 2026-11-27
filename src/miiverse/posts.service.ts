@@ -6,14 +6,17 @@ import {
 import { DatabaseService } from '../database/database.service';
 import { CreatePostDto } from './dto/create-post.dto';
 import { MiiversePost } from './miiverse-post.entity';
-import { POST_COLUMNS } from './miiverse-sql';
+import { POST_COLUMNS, POST_FIELDS } from './miiverse-sql';
 
 /** Largo máximo del texto de un post (el compositor del frontend usa el mismo). */
 const MAX_POST_LENGTH = 500;
 /** Largo máximo del nombre de comunidad (columna VARCHAR(200)). */
 const MAX_GAME_TITLE_LENGTH = 200;
-/** Las imágenes de un post son siempre data URL PNG/JPEG generadas en el navegador. */
-const IMAGE_DATA_URL = /^data:image\/(png|jpeg);base64,[A-Za-z0-9+/=]+$/;
+/**
+ * Las imágenes de un post son siempre data URL PNG/JPEG generadas en el navegador.
+ * Grupos: 1 = formato (png|jpeg), 2 = los datos en base64.
+ */
+const IMAGE_DATA_URL = /^data:image\/(png|jpeg);base64,([A-Za-z0-9+/=]+)$/;
 
 /**
  * Valida y limpia lo que llega al publicar. Antes solo lo comprobaba el
@@ -92,10 +95,10 @@ export class PostsService {
   ): Promise<MiiversePost> {
     const post = cleanPostInput(dto);
     const result = await this.db.query<MiiversePost>(
-      `INSERT INTO miiverse_posts
+      `INSERT INTO miiverse_posts AS p
          (user_id, username, mii_avatar_url, content_text, drawing_url, screenshot_url, game_title, is_spoiler, is_seed)
        VALUES ($1,$2,$3,$4,$5,$6,$7,$8,FALSE)
-       RETURNING *, 0 AS comments_count`,
+       RETURNING ${POST_FIELDS}, 0 AS comments_count`,
       [
         userId,
         username,
@@ -149,6 +152,25 @@ export class PostsService {
     );
     if (!post) throw new NotFoundException('La publicación no existe');
     return post;
+  }
+
+  /**
+   * El dibujo de un post como imagen (para `GET /miiverse/posts/:id/drawing`).
+   * Lo lee de la BD, donde sigue guardado como data URL, y lo convierte en bytes.
+   */
+  async getDrawing(
+    id: number,
+  ): Promise<{ buffer: Buffer; contentType: string }> {
+    const [row] = await this.db.query<{ drawing_url: string | null }>(
+      `SELECT drawing_url FROM miiverse_posts WHERE id = $1`,
+      [id],
+    );
+    const match = row?.drawing_url?.match(IMAGE_DATA_URL);
+    if (!match) throw new NotFoundException('La publicación no tiene dibujo');
+    return {
+      contentType: `image/${match[1]}`,
+      buffer: Buffer.from(match[2], 'base64'),
+    };
   }
 
   /**

@@ -8,8 +8,10 @@ import {
   Patch,
   Post,
   Query,
+  Res,
   UseGuards,
 } from '@nestjs/common';
+import * as express from 'express';
 import { PostsService } from './posts.service';
 import { CommentsService } from './comments.service';
 import { CommunitiesService } from './communities.service';
@@ -89,6 +91,22 @@ export class MiiverseController {
     @Query('sort') sort?: string,
   ) {
     return this.communities.getCommunity(name, toPageQuery(page, limit, sort));
+  }
+
+  /**
+   * El dibujo de un post como imagen PNG/JPEG. Público, como el feed.
+   * El dibujo de un post no se puede editar, así que el navegador puede
+   * guardarlo en caché un día.
+   */
+  @Get('posts/:id/drawing')
+  async getDrawing(
+    @Param('id', ParseIntPipe) id: number,
+    @Res() res: express.Response,
+  ) {
+    const { buffer, contentType } = await this.posts.getDrawing(id);
+    res.set('Content-Type', contentType);
+    res.set('Cache-Control', 'public, max-age=86400');
+    res.send(buffer);
   }
 
   /** Un post concreto. */
